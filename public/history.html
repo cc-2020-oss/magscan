@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>历史记录</title>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/noscript.css">
+  <script src="/echarts.min.js"></script>
+  <style>
+    body { background:#1a1a2e; color:#eee; font-family:"Microsoft YaHei",sans-serif; padding:10px; }
+    .back-btn { display:inline-block; margin-bottom:10px; padding:8px 15px; background:#e94560; color:white; border-radius:6px; text-decoration:none; }
+    .record-item { background:#16213e; padding:10px; margin:10px 0; border-radius:8px; cursor:pointer; }
+    .record-item:hover { background:#1e2e4a; }
+    .charts-container { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+    .chart-box { width:100%; height:250px; background:rgba(0,0,0,0.3); border-radius:8px; }
+  </style>
+</head>
+<body>
+  <a href="index.html" class="back-btn">← 返回</a>
+  <h2>📋 保存的历史记录</h2>
+  <div id="list"></div>
+  <div id="detail" style="display:none;">
+    <h3 id="detailTitle"></h3>
+    <div class="charts-container" id="chartsArea"></div>
+  </div>
+
+  <script>
+    const serverIP = localStorage.getItem('serverIP') || '192.168.43.100';
+    const serverPort = localStorage.getItem('serverPort') || '3000';
+    const baseURL = `http://${serverIP}:${serverPort}`;
+
+    async function loadList() {
+      try {
+        const res = await fetch(baseURL + '/history');
+        const list = await res.json();
+        const listDiv = document.getElementById('list');
+        if (list.length === 0) {
+          listDiv.innerHTML = '<p>暂无历史记录</p>';
+          return;
+        }
+        listDiv.innerHTML = list.map(r => 
+          `<div class="record-item" onclick="showDetail(${r.id})">📅 ${r.timestamp} （记录 #${r.id}）</div>`
+        ).join('');
+      } catch (e) {
+        alert('加载历史列表失败: ' + e.message);
+        document.getElementById('list').innerHTML = '<p style="color:red;">加载失败，请检查服务器连接</p>';
+      }
+    }
+
+    async function showDetail(id) {
+      try {
+        const res = await fetch(`${baseURL}/history/${id}`);
+        const record = await res.json();
+        document.getElementById('detail').style.display = 'block';
+        document.getElementById('detailTitle').textContent = `记录 #${id}  - ${record.timestamp}`;
+
+        const area = document.getElementById('chartsArea');
+        area.innerHTML = `
+          <div id="chart1" class="chart-box"></div>
+          <div id="chart2" class="chart-box"></div>
+          <div id="chart3" class="chart-box"></div>
+          <div id="chart4" class="chart-box"></div>
+        `;
+
+        const TH = 30.0;
+        const grid = { top:35, bottom:50, left:50, right:10 };
+        const xA = { type:'value', name:'角度°', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'} };
+        const yA = { type:'value', name:'uT', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'} };
+        const dataZoomConfig = [
+          { type: 'inside', xAxisIndex: 0 },
+          { type: 'slider', xAxisIndex: 0, bottom: 5 }
+        ];
+
+        function drawChart(domId, title, yDataArr) {
+          const chart = echarts.init(document.getElementById(domId));
+          const series = yDataArr.map(s => {
+            // 限制每个系列最多显示 2000 个点
+            let data = s.data || [];
+            if (data.length > 2000) data = data.slice(-2000);
+            return {
+              name: s.name,
+              type: 'line',
+              data: data,
+              lineStyle: { width: s.width || 1, color: s.color, type: s.type || 'solid' },
+              symbol: 'none'
+            };
+          });
+          chart.setOption({ title:{text:title,left:'center',textStyle:{color:'#eee',fontSize:13}}, grid, xAxis:xA, yAxis:yA, dataZoom: dataZoomConfig, series });
+          return chart;
+        }
+
+        const pass1 = record.pass1Data;
+        const pass2 = record.pass2Data;
+
+        drawChart('chart1', 'Pass 1 磁场', [
+          { name:'X', data: pass1.p1X || [], color:'#ff6b6b', width:1 },
+          { name:'Y', data: pass1.p1Y || [], color:'#51cf66', width:1 },
+          { name:'Z', data: pass1.p1Z || [], color:'#339af0', width:1.5 },
+          { name:'Mag', data: pass1.p1Mag || [], color:'#f06595', type:'dashed', width:1 }
+        ]);
+        drawChart('chart2', 'Pass 2 磁场', [
+          { name:'X', data: pass2.p2X || [], color:'#ff6b6b', width:1 },
+          { name:'Y', data: pass2.p2Y || [], color:'#51cf66', width:1 },
+          { name:'Z', data: pass2.p2Z || [], color:'#339af0', width:1.5 },
+          { name:'Mag', data: pass2.p2Mag || [], color:'#f06595', type:'dashed', width:1 }
+        ]);
+        drawChart('chart3', 'Pass 1 差值', [
+          { name:'差值', data: pass1.p1Diff || [], color:'#339af0', width:1 }
+        ]);
+        drawChart('chart4', 'Pass 2 差值', [
+          { name:'差值', data: pass2.p2Diff || [], color:'#339af0', width:1 }
+        ]);
+
+        document.getElementById('detail').scrollIntoView({ behavior: 'smooth' });
+      } catch (e) {
+        alert('加载详情失败: ' + e.message);
+      }
+    }
+
+    loadList();
+  </script>
+</body>
+</html>

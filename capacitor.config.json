@@ -1,0 +1,8 @@
+{
+  "appId": "com.demo.magscan",
+  "appName": "磁扫描",
+  "webDir": "public",
+  "server": {
+    "androidScheme": "http"
+  }
+}
