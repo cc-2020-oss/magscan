@@ -11,6 +11,7 @@ const io = new Server(server, { cors: { origin: '*' } });
 
 app.use(cors());
 app.use(express.json());
+// 提供静态文件服务（让浏览器能加载 index.html、echarts.min.js 等）
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ===== 数据缓存 =====
@@ -20,7 +21,7 @@ let dataHistory = [];
 let historyRecords = [];
 let historyIdCounter = 0;
 
-// ===== 首页 =====
+// ===== 首页路由（必须！否则打开域名会显示 Cannot GET /） =====
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -39,7 +40,7 @@ app.post('/data', (req, res) => {
   res.send('ok');
 });
 
-// ===== HTTP AI 分析接口 =====
+// ===== HTTP AI 分析接口（保留，用于电脑端测试） =====
 app.post('/analyze', async (req, res) => {
   try {
     const { dataPoints } = req.body;
@@ -177,7 +178,7 @@ io.on('connection', (socket) => {
 });
 
 // ===== 启动服务器 =====
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`服务器运行在 http://0.0.0.0:${PORT}`);
+  console.log(`服务器运行在端口 ${PORT}`);
 });
