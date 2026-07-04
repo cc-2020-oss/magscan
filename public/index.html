@@ -9,54 +9,36 @@
   <script src="/echarts.min.js"></script>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
-    body { background:#1a1a2e; color:#eee; font-family:"Microsoft YaHei",sans-serif; }
+    body { background:#000000; color:#eee; font-family:"Microsoft YaHei",sans-serif; }
     .chart-grid { display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:10px; padding:10px; height:calc(100vh - 120px); }
-    .chart-box { width:100% !important; height:100% !important; background:rgba(0,0,0,0.3); border-radius:8px; }
-    .my-controls { display:flex; align-items:center; gap:10px; padding:10px 20px; background:rgba(0,0,0,0.5); flex-wrap:wrap; }
+    .chart-box { width:100% !important; height:100% !important; background:#111111; border-radius:8px; }
+    .my-controls { display:flex; align-items:center; gap:10px; padding:10px 20px; background:#111111; flex-wrap:wrap; }
     .my-controls h1 { font-size:1.2em; color:#e94560; }
-    .my-controls button { padding:8px 15px; border:none; border-radius:6px; cursor:pointer; font-size:0.9em; font-weight:bold; color:white; background:#0f3460; transition:0.3s; }
-    .btn-forward.active, .btn-backward.active { background:#e94560; }
-    .btn-power.on { background:#e94560; }
-    .btn-clear-p1 { background:#8b0000; }
-    .btn-clear-p2 { background:#8b0000; }
-    .btn-ai { background:#8b5cf6; }
-    .btn-save { background:#2e86c1; }
-    .btn-history { background:#117a65; }
+    .my-controls button { padding:8px 15px; border:none; border-radius:6px; cursor:pointer; font-size:0.9em; font-weight:bold; color:white; background:#333333; transition:0.3s; }
+    .my-controls button.active { background:#555555; }
+    .my-controls button:hover { background:#444444; }
+    .btn-power { background:#444444; }
+    .btn-power.on { background:#888888; }
     .info { margin-left:auto; font-size:0.8em; color:#aaa; display:flex; align-items:center; gap:8px; }
     #modeIndicator { font-weight:bold; }
-    .setup-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); display:flex; justify-content:center; align-items:center; z-index:1000; }
-    .setup-box { background:#16213e; padding:20px; border-radius:12px; width:85%; max-width:350px; }
-    .setup-box h2 { margin-bottom:15px; color:#e94560; text-align:center; }
-    .setup-box input { width:100%; padding:10px; margin-bottom:10px; border:none; border-radius:6px; background:#0f3460; color:white; font-size:1em; }
-    .setup-box button { width:100%; margin-top:5px; }
-    .ai-result-box { background:#16213e; padding:15px; margin:10px; border-radius:10px; max-height:200px; overflow-y:auto; display:none; }
+    .ai-result-box { background:#111111; padding:15px; margin:10px; border-radius:10px; max-height:200px; overflow-y:auto; display:none; }
   </style>
 </head>
 <body class="is-preload">
 
-  <div id="setupOverlay" class="setup-overlay" style="display:none;">
-    <div class="setup-box">
-      <h2>连接电脑服务器</h2>
-      <input type="text" id="ipInput" placeholder="IP 地址 (如 192.168.43.100)" />
-      <input type="text" id="portInput" placeholder="端口 (默认 3000)" />
-      <button id="connectBtn" class="active">连接</button>
-      <button id="offlineBtn" style="background:#555;">使用离线数据</button>
-    </div>
-  </div>
-
   <div id="wrapper">
     <div class="my-controls">
-      <h1>🔍 磁扫描</h1>
-      <button id="forwardBtn" class="btn-forward active">正向</button>
-      <button id="backwardBtn" class="btn-backward">反向</button>
-      <button id="powerBtn" class="btn-power">▶ 开始</button>
-      <button id="clearP1Btn" class="btn-clear-p1">🗑 清正</button>
-      <button id="clearP2Btn" class="btn-clear-p2">🗑 清反</button>
-      <button id="aiBtn" class="btn-ai">🤖 AI 分析</button>
-      <button id="saveBtn" class="btn-save">💾 保存</button>
-      <button id="historyBtn" class="btn-history">📋 历史</button>
+      <h1>磁扫描监控</h1>
+      <button id="forwardBtn" class="active">正向</button>
+      <button id="backwardBtn">反向</button>
+      <button id="powerBtn" class="btn-power">开始</button>
+      <button id="clearP1Btn">清正</button>
+      <button id="clearP2Btn">清反</button>
+      <button id="aiBtn">AI分析</button>
+      <button id="saveBtn">保存</button>
+      <button id="historyBtn">历史</button>
       <span class="info">
-        <span id="modeIndicator">离线</span> | 
+        <span id="modeIndicator">扫描中...</span> | 
         <span id="progressInfo">就绪</span>
       </span>
     </div>
@@ -82,7 +64,7 @@
 
   <!-- 内嵌 Socket.IO 客户端（请替换为从服务器复制的完整代码） -->
   <script>
-  /*!
+    /*!
  * Socket.IO v4.8.3
  * (c) 2014-2025 Guillermo Rauch
  * Released under the MIT License.
@@ -5042,6 +5024,8 @@
   <script>
     // ========== 全局变量 ==========
     let useServer = false, socket = null;
+    let currentServerIP = '';
+    let currentServerPort = '3000';
     let forwardData = [], backwardData = [], currentData = [];
     let dataIndex = 0, playbackTimer = null, addDataPoint = null;
     let pendingPoints = [];
@@ -5053,11 +5037,6 @@
     if (typeof BACKWARD_DATA !== 'undefined') backwardData = parseRaw(BACKWARD_DATA);
     currentData = forwardData;
 
-    const setupOverlay = document.getElementById('setupOverlay');
-    const ipInput = document.getElementById('ipInput');
-    const portInput = document.getElementById('portInput');
-    const connectBtn = document.getElementById('connectBtn');
-    const offlineBtn = document.getElementById('offlineBtn');
     const modeIndicator = document.getElementById('modeIndicator');
     const progressInfo = document.getElementById('progressInfo');
     const powerBtn = document.getElementById('powerBtn');
@@ -5071,40 +5050,29 @@
     const aiResultBox = document.getElementById('aiResultBox');
     const aiText = document.getElementById('aiText');
 
-    const savedIP = localStorage.getItem('serverIP');
-    const savedPort = localStorage.getItem('serverPort');
-    if (savedIP) {
-      ipInput.value = savedIP;
-      portInput.value = savedPort || '3000';
-    } else {
-      portInput.value = '3000';
-    }
-
-    function showSetup() { setupOverlay.style.display = 'flex'; }
-    function hideSetup() { setupOverlay.style.display = 'none'; }
-
+    // ========== 连接服务器 ==========
     function connectToServer(ip, port) {
       if (socket) { socket.close(); socket = null; }
       useServer = false;
+      currentServerIP = ip;
+      currentServerPort = port;
       modeIndicator.textContent = '连接中...';
       modeIndicator.style.color = '#f0ad4e';
 
       const url = `http://${ip}:${port}`;
-      console.log('准备连接:', url);
+      console.log('自动连接:', url);
 
       if (typeof io === 'undefined') {
-        alert('Socket.IO 客户端未加载，请检查内嵌代码');
-        modeIndicator.textContent = '离线';
-        modeIndicator.style.color = '#f0ad4e';
+        fallbackToOffline();
         return;
       }
 
       try {
         socket = io(url, {
           transports: ['polling'],
-          timeout: 20000,
+          timeout: 5000,
           reconnection: true,
-          reconnectionAttempts: 5,
+          reconnectionAttempts: 3,
           reconnectionDelay: 1000
         });
 
@@ -5112,22 +5080,14 @@
           useServer = true;
           modeIndicator.textContent = '实时';
           modeIndicator.style.color = '#51cf66';
-          hideSetup();
         });
 
-        socket.on('connect_error', (err) => {
-          alert('连接失败: ' + err.message);
-          modeIndicator.textContent = '连接失败';
-          modeIndicator.style.color = '#e94560';
-          useServer = false;
+        socket.on('connect_error', () => {
+          fallbackToOffline();
         });
 
         socket.on('disconnect', () => {
-          if (useServer) {
-            modeIndicator.textContent = '已断开';
-            modeIndicator.style.color = '#e94560';
-            useServer = false;
-          }
+          fallbackToOffline();
         });
 
         socket.on('scanPoint', (pt) => {
@@ -5140,14 +5100,13 @@
         });
 
         socket.on('stateUpdate', (s) => {
-          powerBtn.textContent = s.power ? '⏸ 停止' : '▶ 开始';
+          powerBtn.textContent = s.power ? '停止' : '开始';
           powerBtn.className = s.power ? 'btn-power on' : 'btn-power';
         });
 
-        // 接收 AI 分析结果
         socket.on('analyzeResult', (result) => {
           aiBtn.disabled = false;
-          aiBtn.textContent = '🤖 AI 分析';
+          aiBtn.textContent = 'AI分析';
           if (result.analysis) {
             aiText.textContent = result.analysis;
             aiResultBox.style.display = 'block';
@@ -5157,40 +5116,108 @@
         });
 
       } catch (e) {
-        alert('初始化连接失败: ' + e.message);
-        modeIndicator.textContent = '离线';
-        modeIndicator.style.color = '#f0ad4e';
+        fallbackToOffline();
       }
     }
 
-    connectBtn.addEventListener('click', () => {
-      const ip = ipInput.value.trim();
-      const port = portInput.value.trim() || '3000';
-      if (!ip) { alert('请输入 IP 地址'); return; }
-      localStorage.setItem('serverIP', ip);
-      localStorage.setItem('serverPort', port);
-      connectToServer(ip, port);
-    });
-
-    offlineBtn.addEventListener('click', () => {
-      if (socket) { socket.close(); socket = null; }
+    function fallbackToOffline() {
       useServer = false;
+      if (socket) { socket.close(); socket = null; }
       modeIndicator.textContent = '离线';
       modeIndicator.style.color = '#f0ad4e';
-      hideSetup();
-    });
-
-    document.querySelector('h1').addEventListener('dblclick', showSetup);
-
-    if (savedIP) {
-      connectToServer(savedIP, savedPort || '3000');
-    } else {
-      showSetup();
     }
 
+    // ========== 模式一：浏览器环境，直接读取地址栏 IP ==========
+    function tryBrowserMode() {
+      if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+        const ip = window.location.hostname;
+        const port = window.location.port || '3000';
+        if (ip && ip !== 'localhost' && ip !== '127.0.0.1') {
+          connectToServer(ip, port);
+          return true;
+        }
+        if (ip === 'localhost' || ip === '127.0.0.1') {
+          connectToServer('127.0.0.1', port);
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // ========== 模式二：App 环境，自动扫描局域网 ==========
+    function tryAppMode() {
+      modeIndicator.textContent = '扫描中...';
+      modeIndicator.style.color = '#f0ad4e';
+
+      const pc = new RTCPeerConnection({ iceServers: [] });
+      pc.createDataChannel('');
+      pc.createOffer().then(offer => pc.setLocalDescription(offer));
+      
+      let subnetFound = false;
+      pc.onicecandidate = (event) => {
+        if (event.candidate && !subnetFound) {
+          const ipRegex = /([0-9]{1,3}\.){3}[0-9]{1,3}/;
+          const match = event.candidate.candidate.match(ipRegex);
+          if (match) {
+            const localIP = match[0];
+            const parts = localIP.split('.');
+            const subnet = `${parts[0]}.${parts[1]}.${parts[2]}`;
+            subnetFound = true;
+            pc.close();
+            scanSubnet(subnet);
+          }
+        }
+      };
+
+      setTimeout(() => {
+        if (!subnetFound && !useServer) {
+          pc.close();
+          scanCommonSubnets();
+        }
+      }, 3000);
+    }
+
+    function scanSubnet(subnet) {
+      let found = false;
+      let checkedCount = 0;
+      for (let i = 1; i <= 255; i++) {
+        const ip = `${subnet}.${i}`;
+        const img = new Image();
+        const checkIP = ip;
+        img.onload = img.onerror = function() {
+          checkedCount++;
+          if (!found && !useServer) {
+            connectToServer(checkIP, currentServerPort);
+            setTimeout(() => {
+              if (useServer && !found) found = true;
+              if (checkedCount >= 255 && !found && !useServer) scanCommonSubnets();
+            }, 800);
+          }
+        };
+        img.src = `http://${ip}:${currentServerPort}/favicon.ico?t=${Date.now()}&ip=${i}`;
+      }
+    }
+
+    function scanCommonSubnets() {
+      const commonSubnets = [
+        '192.168.43','172.20.10','10.48.99','192.168.1','192.168.0','192.168.137','192.168.42'
+      ];
+      for (const subnet of commonSubnets) {
+        if (!useServer) scanSubnet(subnet);
+      }
+    }
+
+    function autoConnect() {
+      if (tryBrowserMode()) return;
+      tryAppMode();
+    }
+
+    autoConnect();
+
+    // ========== 离线回放控制 ==========
     function stopPlayback() {
       if (playbackTimer) { clearInterval(playbackTimer); playbackTimer = null; }
-      powerBtn.textContent = '▶ 开始'; powerBtn.className = 'btn-power';
+      powerBtn.textContent = '开始'; powerBtn.className = 'btn-power';
     }
 
     function startPlayback() {
@@ -5210,13 +5237,12 @@
         progressInfo.textContent = `${pt.currentPoint}/${pt.totalPoints}  角度:${angle.toFixed(1)}°  Z:${z.toFixed(1)}uT`;
         dataIndex++;
       }, 200);
-      powerBtn.textContent = '⏸ 停止'; powerBtn.className = 'btn-power on';
+      powerBtn.textContent = '停止'; powerBtn.className = 'btn-power on';
     }
 
     powerBtn.addEventListener('click', () => {
-      if (useServer && socket) {
-        socket.emit('togglePower');
-      } else {
+      if (useServer && socket) socket.emit('togglePower');
+      else {
         if (playbackTimer) stopPlayback();
         else startPlayback();
       }
@@ -5224,25 +5250,16 @@
 
     forwardBtn.addEventListener('click', () => {
       forwardBtn.classList.add('active'); backwardBtn.classList.remove('active');
-      if (useServer && socket) {
-        socket.emit('setDirection', 'forward');
-      } else {
-        stopPlayback();
-        currentData = forwardData;
-      }
+      if (useServer && socket) socket.emit('setDirection', 'forward');
+      else { stopPlayback(); currentData = forwardData; }
     });
 
     backwardBtn.addEventListener('click', () => {
       backwardBtn.classList.add('active'); forwardBtn.classList.remove('active');
-      if (useServer && socket) {
-        socket.emit('setDirection', 'backward');
-      } else {
-        stopPlayback();
-        currentData = backwardData;
-      }
+      if (useServer && socket) socket.emit('setDirection', 'backward');
+      else { stopPlayback(); currentData = backwardData; }
     });
 
-    // 清除按钮
     clearP1Btn.addEventListener('click', () => {
       if (typeof clearPass1 === 'function') clearPass1();
     });
@@ -5250,16 +5267,9 @@
       if (typeof clearPass2 === 'function') clearPass2();
     });
 
-    // AI 分析按钮
     aiBtn.addEventListener('click', () => {
-      if (!window.p1Z || window.p1Z.length === 0) {
-        alert('暂无正向数据');
-        return;
-      }
-      if (!useServer || !socket) {
-        alert('请先连接服务器');
-        return;
-      }
+      if (!window.p1Z || window.p1Z.length === 0) { alert('暂无正向数据'); return; }
+      if (!useServer || !socket) { alert('请先连接服务器'); return; }
       const dataPoints = window.p1Z.map(item => ({ angle: item[0], z: item[1] }));
       aiBtn.disabled = true;
       aiBtn.textContent = '分析中...';
@@ -5267,63 +5277,37 @@
       socket.emit('analyze', { dataPoints });
     });
 
-    // 保存本轮数据（带超时和限制点数）
-      // 保存本轮数据（修复斜杠问题 + 超时 + 限制点数）
     saveBtn.addEventListener('click', () => {
-      if (!window.p1Z || window.p1Z.length === 0) {
-        alert('暂无正向数据');
-        return;
-      }
-      const maxPoints = 2000;
-      const slice = (arr) => arr ? arr.slice(-maxPoints).map(p => [p[0], p[1]]) : [];
+      if (!window.p1Z || window.p1Z.length === 0) { alert('暂无正向数据'); return; }
+      if (!useServer || !socket) { alert('请先连接服务器'); return; }
       const pass1Data = {
-        p1X: slice(window.p1X), p1Y: slice(window.p1Y), p1Z: slice(window.p1Z),
-        p1Mag: slice(window.p1Mag), p1Diff: slice(window.p1Diff)
+        p1X: (window.p1X || []).map(p => [p[0], p[1]]),
+        p1Y: (window.p1Y || []).map(p => [p[0], p[1]]),
+        p1Z: (window.p1Z || []).map(p => [p[0], p[1]]),
+        p1Mag: (window.p1Mag || []).map(p => [p[0], p[1]]),
+        p1Diff: (window.p1Diff || []).map(p => [p[0], p[1]])
       };
       const pass2Data = {
-        p2X: slice(window.p2X), p2Y: slice(window.p2Y), p2Z: slice(window.p2Z),
-        p2Mag: slice(window.p2Mag), p2Diff: slice(window.p2Diff)
+        p2X: (window.p2X || []).map(p => [p[0], p[1]]),
+        p2Y: (window.p2Y || []).map(p => [p[0], p[1]]),
+        p2Z: (window.p2Z || []).map(p => [p[0], p[1]]),
+        p2Mag: (window.p2Mag || []).map(p => [p[0], p[1]]),
+        p2Diff: (window.p2Diff || []).map(p => [p[0], p[1]])
       };
       const data = { timestamp: new Date().toLocaleString(), pass1Data, pass2Data };
-
-      const ip = ipInput.value.trim();
-      const port = portInput.value.trim() || '3000';
-      // 确保URL末尾没有斜杠
-      let url = `http://${ip}:${port}/save`;
-      url = url.replace(/\/$/, ''); // 移除尾部斜杠
-      alert('保存请求地址: ' + url); // 调试弹窗，确认地址正确
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-      fetch(url, {
+      fetch(`http://${currentServerIP}:${currentServerPort}/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-        signal: controller.signal
+        body: JSON.stringify(data)
       })
-      .then(async res => {
-        clearTimeout(timeoutId);
-        const text = await res.text();
-        try {
-          const result = JSON.parse(text);
-          if (result.success) alert('保存成功！记录ID: ' + result.id);
-          else alert('保存失败: ' + (result.error || text));
-        } catch (e) {
-          alert('服务器返回异常: ' + text);
-        }
+      .then(res => res.json())
+      .then(result => {
+        if (result.success) alert('保存成功！记录ID: ' + result.id);
+        else alert('保存失败');
       })
-      .catch(err => {
-        clearTimeout(timeoutId);
-        if (err.name === 'AbortError') {
-          alert('保存请求超时，请检查服务器连接');
-        } else {
-          alert('保存请求失败: ' + err.message);
-        }
-      });
+      .catch(err => alert('保存请求失败: ' + err.message));
     });
 
-    // 跳转历史页面
     historyBtn.addEventListener('click', () => {
       window.location.href = 'history.html';
     });
@@ -5375,11 +5359,6 @@
       [c3,c4].forEach(c => c.setOption({ series: [{},{},{ name:'+30', type:'line', markLine:{silent:true, data:[{yAxis:TH}], lineStyle:{color:'#f00',type:'dashed'}}, data:[] },{ name:'-30', type:'line', markLine:{silent:true, data:[{yAxis:-TH}], lineStyle:{color:'#f00',type:'dashed'}}, data:[] }] }));
 
       addDataPoint = (pt) => {
-        // 限制图表最大显示点数（防止卡顿）
-        const MAX_CHART_POINTS = 2000;
-        if (p1X.length > MAX_CHART_POINTS) { p1X.shift(); p1Y.shift(); p1Z.shift(); p1Mag.shift(); p1Diff.shift(); }
-        if (p2X.length > MAX_CHART_POINTS) { p2X.shift(); p2Y.shift(); p2Z.shift(); p2Mag.shift(); p2Diff.shift(); }
-
         if (pt.pass === 1) {
           p1X.push([pt.angle, pt.x]); p1Y.push([pt.angle, pt.y]); p1Z.push([pt.angle, pt.z]); p1Mag.push([pt.angle, pt.mag]);
           if (pt.anomaly) p1Anom.push({value:[pt.angle, pt.z]});

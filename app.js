@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const axios = require('axios');
 const cors = require('cors');
 const path = require('path');
+const dgram = require('dgram');
 
 const app = express();
 const server = http.createServer(app);
@@ -11,51 +12,43 @@ const io = new Server(server, { cors: { origin: '*' } });
 
 app.use(cors());
 app.use(express.json());
-// 提供静态文件服务（让浏览器能加载 index.html、echarts.min.js 等）
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ===== 数据缓存 =====
 let dataHistory = [];
-
-// ===== 历史记录存储 =====
 let historyRecords = [];
 let historyIdCounter = 0;
 
-// ===== 首页路由（必须！否则打开域名会显示 Cannot GET /） =====
+// 首页
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ===== 接收 ESP32 数据 =====
+// 接收 ESP32 数据
 app.post('/data', (req, res) => {
   const pt = req.body;
   pt.expected = pt.expected || 0;
   pt.diff = pt.diff || 0;
   pt.currentPoint = pt.currentPoint || 0;
   pt.totalPoints = pt.totalPoints || 0;
-
   dataHistory.push(pt);
   io.emit('scanPoint', pt);
-  console.log('收到数据:', pt.angle, pt.z);
+  console.log('收到数据:', pt.angle, pt.z);   // ← 日志输出在这里
   res.send('ok');
 });
 
-// ===== HTTP AI 分析接口（保留，用于电脑端测试） =====
+// AI 分析接口（HTTP）
 app.post('/analyze', async (req, res) => {
   try {
     const { dataPoints } = req.body;
-    if (!dataPoints || dataPoints.length === 0) {
-      return res.status(400).json({ error: '数据为空' });
-    }
+    if (!dataPoints || dataPoints.length === 0) return res.status(400).json({ error: '数据为空' });
     const recent = dataPoints.slice(-100);
     const angles = recent.map(p => p.angle);
     const zValues = recent.map(p => p.z);
     const maxZ = Math.max(...zValues);
     const minZ = Math.min(...zValues);
     const avgZ = (zValues.reduce((a, b) => a + b, 0) / zValues.length).toFixed(2);
-
     const prompt = `我有一段磁场扫描数据（Z轴分量），共${recent.length}个点，角度范围${angles[0]}°到${angles[angles.length - 1]}°，Z值最大${maxZ}，最小${minZ}，平均值${avgZ}。请分析可能存在的异常或损伤，并给出建议。`;
-
     const response = await axios.post(
       'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
       {
@@ -72,60 +65,43 @@ app.post('/analyze', async (req, res) => {
         }
       }
     );
-
-    const aiReply = response.data.choices[0].message.content;
-    res.json({ analysis: aiReply });
+    res.json({ analysis: response.data.choices[0].message.content });
   } catch (error) {
-    console.error('AI 分析失败:', error.message);
     res.status(500).json({ error: 'AI 分析失败: ' + error.message });
   }
 });
 
-// ===== 清除历史数据 =====
-app.get('/clear', (req, res) => {
-  dataHistory = [];
-  console.log('历史数据已清除');
-  res.send('ok');
-});
+// 清除数据
+app.get('/clear', (req, res) => { dataHistory = []; res.send('ok'); });
 
-// ===== 保存本轮数据（兼容末尾斜杠） =====
+// 保存本轮数据（兼容斜杠）
 app.post(['/save', '/save/'], (req, res) => {
   const { timestamp, pass1Data, pass2Data } = req.body;
-  const record = {
-    id: ++historyIdCounter,
-    timestamp: timestamp || new Date().toISOString(),
-    pass1Data,
-    pass2Data
-  };
+  const record = { id: ++historyIdCounter, timestamp: timestamp || new Date().toISOString(), pass1Data, pass2Data };
   historyRecords.push(record);
-  console.log(`保存第${record.id}条记录，时间:${record.timestamp}`);
+  console.log(`保存记录 ID: ${record.id}`);
   res.json({ success: true, id: record.id });
 });
 
-// ===== 获取历史记录列表 =====
+// 获取历史记录列表
 app.get('/history', (req, res) => {
-  const list = historyRecords.map(r => ({ id: r.id, timestamp: r.timestamp }));
-  res.json(list);
+  res.json(historyRecords.map(r => ({ id: r.id, timestamp: r.timestamp })));
 });
 
-// ===== 获取某条记录的详细数据 =====
+// 获取某条历史记录详情
 app.get('/history/:id', (req, res) => {
-  const id = parseInt(req.params.id);
-  const record = historyRecords.find(r => r.id === id);
+  const record = historyRecords.find(r => r.id === parseInt(req.params.id));
   if (!record) return res.status(404).json({ error: '未找到' });
   res.json(record);
 });
 
-// ===== Socket.IO 连接处理 =====
+// Socket.IO 连接处理
 io.on('connection', (socket) => {
   console.log('App 已连接');
 
   // 发送历史数据
   if (dataHistory.length > 0) {
-    console.log(`发送 ${dataHistory.length} 条历史数据`);
-    dataHistory.forEach(pt => {
-      socket.emit('scanPoint', pt);
-    });
+    dataHistory.forEach(pt => socket.emit('scanPoint', pt));
   }
 
   // 控制指令
@@ -146,9 +122,7 @@ io.on('connection', (socket) => {
       const maxZ = Math.max(...zValues);
       const minZ = Math.min(...zValues);
       const avgZ = (zValues.reduce((a, b) => a + b, 0) / zValues.length).toFixed(2);
-
       const prompt = `我有一段磁场扫描数据（Z轴分量），共${recent.length}个点，角度范围${angles[0]}°到${angles[angles.length - 1]}°，Z值最大${maxZ}，最小${minZ}，平均值${avgZ}。请分析可能存在的异常或损伤，并给出建议。`;
-
       const response = await axios.post(
         'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
         {
@@ -165,11 +139,8 @@ io.on('connection', (socket) => {
           }
         }
       );
-
-      const aiReply = response.data.choices[0].message.content;
-      socket.emit('analyzeResult', { analysis: aiReply });
+      socket.emit('analyzeResult', { analysis: response.data.choices[0].message.content });
     } catch (error) {
-      console.error('AI 分析失败:', error.message);
       socket.emit('analyzeResult', { error: 'AI 分析失败: ' + error.message });
     }
   });
@@ -177,7 +148,21 @@ io.on('connection', (socket) => {
   socket.emit('stateUpdate', { power: false, direction: 'forward' });
 });
 
-// ===== 启动服务器 =====
+// ===== UDP 广播发现服务 =====
+const UDP_PORT = 3001;
+const udpSocket = dgram.createSocket('udp4');
+udpSocket.on('message', (msg, rinfo) => {
+  if (msg.toString() === 'magscan-discover') {
+    const reply = Buffer.from(`magscan-server:${PORT}`);
+    udpSocket.send(reply, rinfo.port, rinfo.address);
+    console.log(`回复广播给 ${rinfo.address}`);
+  }
+});
+udpSocket.bind(UDP_PORT, '0.0.0.0', () => {
+  console.log(`UDP 发现服务监听端口 ${UDP_PORT}`);
+});
+
+// ===== 启动 HTTP 服务 =====
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`服务器运行在端口 ${PORT}`);
