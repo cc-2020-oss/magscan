@@ -19,11 +19,11 @@ let dataHistory = [];
 let historyRecords = [];
 let historyIdCounter = 0;
 
-// 自动保存相关
+// 自动保存周期相关
 let currentPass1 = [];
 let currentPass2 = [];
-let cycleEnded = false;
-let lastAngle2 = -1;
+let lastPass = 0;
+let lastAngle = 0;
 
 // 首页
 app.get('/', (req, res) => {
@@ -40,19 +40,28 @@ app.post('/data', (req, res) => {
   dataHistory.push(pt);
   io.emit('scanPoint', pt);
 
+  // ===== 自动收集周期数据 =====
   if (pt.pass === 1) {
-    if (!cycleEnded) {
-      currentPass1.push({ angle: pt.angle, x: pt.x, y: pt.y, z: pt.z, mag: pt.mag, diff: pt.diff, anomaly: pt.anomaly });
+    if (lastPass === 2 && lastAngle <= 0 && pt.angle > 0) {
+      currentPass1 = [];
+      currentPass2 = [];
     }
+    currentPass1.push({
+      angle: pt.angle, x: pt.x, y: pt.y, z: pt.z, mag: pt.mag, diff: pt.diff, anomaly: pt.anomaly
+    });
   } else if (pt.pass === 2) {
-    if (!cycleEnded) {
-      currentPass2.push({ angle: pt.angle, x: pt.x, y: pt.y, z: pt.z, mag: pt.mag, diff: pt.diff, anomaly: pt.anomaly });
-      if (pt.angle <= 0 && lastAngle2 > 0) {
-        saveCycle();
-      }
-      lastAngle2 = pt.angle;
+    currentPass2.push({
+      angle: pt.angle, x: pt.x, y: pt.y, z: pt.z, mag: pt.mag, diff: pt.diff, anomaly: pt.anomaly
+    });
+    if (pt.angle <= 5 && lastPass === 2 && lastAngle > pt.angle) {
+      saveCycle();
+      currentPass1 = [];
+      currentPass2 = [];
     }
   }
+
+  lastPass = pt.pass;
+  lastAngle = pt.angle;
 
   console.log('收到数据:', pt.angle, pt.z);
   res.send('ok');
@@ -79,12 +88,14 @@ function saveCycle() {
     }
   };
   historyRecords.push(record);
-  console.log(`自动保存周期记录 ID: ${record.id}`);
+  
+  // 限制最多保留20组记录，超过则删除最旧的一组
+  if (historyRecords.length > 20) {
+    historyRecords.shift();
+  }
+  
+  console.log(`自动保存周期记录 ID: ${record.id}, 当前总记录数: ${historyRecords.length}`);
   io.emit('newHistoryRecord', { id: record.id, timestamp: record.timestamp });
-  currentPass1 = [];
-  currentPass2 = [];
-  cycleEnded = false;
-  lastAngle2 = -1;
 }
 
 // AI 分析接口（HTTP）
@@ -177,13 +188,14 @@ io.on('connection', (socket) => {
   socket.emit('stateUpdate', { power: false, direction: 'forward' });
 });
 
-// UDP 广播发现服务
+// ===== UDP 广播发现服务 =====
 const UDP_PORT = 3001;
 const udpSocket = dgram.createSocket('udp4');
 udpSocket.on('message', (msg, rinfo) => {
   if (msg.toString() === 'magscan-discover') {
     const reply = Buffer.from(`magscan-server:${PORT}`);
     udpSocket.send(reply, rinfo.port, rinfo.address);
+    console.log(`回复广播给 ${rinfo.address}`);
   }
 });
 udpSocket.bind(UDP_PORT, '0.0.0.0', () => {
