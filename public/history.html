@@ -92,13 +92,12 @@
         const pass1 = currentRecord.pass1Data;
         const pass2 = currentRecord.pass2Data;
 
-        // 正向四张图
+        // 正向四张
         drawChart('chart1', '正向 X轴磁通量', pass1.p1X || [], '#ff6b6b', -900, -800, 0, 140);
         drawChart('chart2', '正向 Y轴磁通量', pass1.p1Y || [], '#51cf66', 0, 4000, 0, 140);
         drawChart('chart3', '正向 Z轴磁通量', pass1.p1Z || [], '#339af0', 0, 40000, 0, 140);
         drawChart('chart4', '正向 总磁通量', pass1.p1Mag || [], '#f06595', 35100, 35300, 0, 140);
-
-        // 反向四张图
+        // 反向四张
         drawChart('chart5', '反向 X轴磁通量', pass2.p2X || [], '#ff6b6b', 0, 150, 0, 150);
         drawChart('chart6', '反向 Y轴磁通量', pass2.p2Y || [], '#51cf66', 0, 2000, 0, 150);
         drawChart('chart7', '反向 Z轴磁通量', pass2.p2Z || [], '#339af0', 0, 600, 0, 150);
@@ -167,14 +166,15 @@
 
     function exportToExcel(rec) {
       const wb = XLSX.utils.book_new();
-      const p1Data = [['距离','X','Y','Z','总磁通量']];
+      // 正向
+      const p1Data = [['距离(cm)','X','Y','Z','总磁通量']];
       rec.pass1Data.p1Z.forEach((_, i) => {
         p1Data.push([rec.pass1Data.p1Z[i][0], rec.pass1Data.p1X[i][1], rec.pass1Data.p1Y[i][1], rec.pass1Data.p1Z[i][1], rec.pass1Data.p1Mag[i][1]]);
       });
       const ws1 = XLSX.utils.aoa_to_sheet(p1Data);
       XLSX.utils.book_append_sheet(wb, ws1, '正向');
-
-      const p2Data = [['距离','X','Y','Z','总磁通量']];
+      // 反向
+      const p2Data = [['距离(cm)','X','Y','Z','总磁通量']];
       rec.pass2Data.p2Z.forEach((_, i) => {
         p2Data.push([rec.pass2Data.p2Z[i][0], rec.pass2Data.p2X[i][1], rec.pass2Data.p2Y[i][1], rec.pass2Data.p2Z[i][1], rec.pass2Data.p2Mag[i][1]]);
       });
