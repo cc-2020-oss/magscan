@@ -5025,7 +5025,12 @@
     let forwardData = [], backwardData = [], currentData = [];
     let dataIndex = 0, playbackTimer = null, addDataPoint = null;
     let pendingPoints = [];
-    let isOfflinePlaying = false;   // 离线回放状态
+    let isOfflinePlaying = false;
+
+    // ===== 批量更新相关变量 =====
+    let bufferPoints = [];           // 缓冲池，存放收到的数据点
+    const UPDATE_INTERVAL = 100;     // 每 100ms 批量更新一次图表
+    const MAX_POINTS = 2000;         // 每个图表最多保留 2000 个点
 
     // ===== 自动清除周期相关变量 =====
     let lastPassForClear = 0;
@@ -5088,24 +5093,18 @@
         });
 
         socket.on('scanPoint', (pt) => {
-          if (addDataPoint) {
-            addDataPoint(pt);
-          } else {
-            pendingPoints.push(pt);
-          }
+          // 把收到的点放入缓冲池，而不是立即绘图
+          bufferPoints.push(pt);
+
           progressInfo.textContent = `${pt.currentPoint || 0}/${pt.totalPoints || 0}  角度:${pt.angle?.toFixed(1) || 0}°  Z:${pt.z?.toFixed(1) || 0}uT`;
 
-          // ===== 自动清除：检测正反周期结束 =====
+          // 自动清除逻辑（仍然在收到点时判断）
           if (pt.pass === 2 && pt.angle <= 5 && lastPassForClear === 2 && lastAngleForClear > pt.angle) {
             if (typeof clearPass1 === 'function') clearPass1();
             if (typeof clearPass2 === 'function') clearPass2();
           }
           lastPassForClear = pt.pass;
           lastAngleForClear = pt.angle;
-        });
-
-        socket.on('stateUpdate', (s) => {
-          // 不再需要更新按钮文字
         });
 
         socket.on('analyzeResult', (result) => {
@@ -5142,7 +5141,7 @@
     }
 
     function startPlayback() {
-      if (useServer) return; // 如果已经连上服务器，不启动离线回放
+      if (useServer) return;
       isOfflinePlaying = true;
       modeIndicator.textContent = '离线回放';
       modeIndicator.style.color = '#f0ad4e';
@@ -5158,13 +5157,11 @@
           anomaly: 0, expected: 0, diff: 0,
           currentPoint: dataIndex + 1, totalPoints: currentData.length
         };
-        if (addDataPoint) addDataPoint(pt);
-        progressInfo.textContent = `${pt.currentPoint}/${pt.totalPoints}  角度:${angle.toFixed(1)}°  Z:${z.toFixed(1)}uT`;
+        bufferPoints.push(pt);
         dataIndex++;
       }, 200);
     }
 
-    // 双击标题切换离线回放
     document.querySelector('h1').addEventListener('dblclick', () => {
       if (useServer) {
         alert('已连接服务器，离线回放不可用');
@@ -5337,22 +5334,39 @@
         ]});
       [c3,c4].forEach(c => c.setOption({ series: [{},{},{ name:'+30', type:'line', markLine:{silent:true, data:[{yAxis:TH}], lineStyle:{color:'#f00',type:'dashed'}}, data:[] },{ name:'-30', type:'line', markLine:{silent:true, data:[{yAxis:-TH}], lineStyle:{color:'#f00',type:'dashed'}}, data:[] }] }));
 
+      // ===== 批量更新函数 =====
+      function processBuffer() {
+        if (bufferPoints.length === 0) return;
+        const points = bufferPoints.splice(0); // 取出所有缓存的点
+        points.forEach(pt => {
+          if (pt.pass === 1) {
+            p1X.push([pt.angle, pt.x]); p1Y.push([pt.angle, pt.y]); p1Z.push([pt.angle, pt.z]); p1Mag.push([pt.angle, pt.mag]);
+            if (pt.anomaly) p1Anom.push({value:[pt.angle, pt.z]});
+            p1Diff.push([pt.angle, pt.diff]);
+            if (Math.abs(pt.diff) > TH) p1DiffAnom.push({value:[pt.angle, pt.diff]});
+            // 限制点数
+            while (p1X.length > MAX_POINTS) { p1X.shift(); p1Y.shift(); p1Z.shift(); p1Mag.shift(); p1Diff.shift(); }
+          } else {
+            p2X.push([pt.angle, pt.x]); p2Y.push([pt.angle, pt.y]); p2Z.push([pt.angle, pt.z]); p2Mag.push([pt.angle, pt.mag]);
+            if (pt.anomaly) p2Anom.push({value:[pt.angle, pt.z]});
+            p2Diff.push([pt.angle, pt.diff]);
+            if (Math.abs(pt.diff) > TH) p2DiffAnom.push({value:[pt.angle, pt.diff]});
+            while (p2X.length > MAX_POINTS) { p2X.shift(); p2Y.shift(); p2Z.shift(); p2Mag.shift(); p2Diff.shift(); }
+          }
+        });
+        // 一次性更新所有图表
+        c1.setOption({ series: [{data:p1X},{data:p1Y},{data:p1Z},{data:p1Mag},{data:p1Anom}] });
+        c3.setOption({ series: [{data:p1Diff},{data:p1DiffAnom}] });
+        c2.setOption({ series: [{data:p2X},{data:p2Y},{data:p2Z},{data:p2Mag},{data:p2Anom}] });
+        c4.setOption({ series: [{data:p2Diff},{data:p2DiffAnom}] });
+      }
+
+      // 启动定时器，每隔 UPDATE_INTERVAL ms 批量更新一次
+      setInterval(processBuffer, UPDATE_INTERVAL);
+
+      // 保存 addDataPoint 供离线回放或其他地方使用（已不需要立即绘图）
       addDataPoint = (pt) => {
-        if (pt.pass === 1) {
-          p1X.push([pt.angle, pt.x]); p1Y.push([pt.angle, pt.y]); p1Z.push([pt.angle, pt.z]); p1Mag.push([pt.angle, pt.mag]);
-          if (pt.anomaly) p1Anom.push({value:[pt.angle, pt.z]});
-          p1Diff.push([pt.angle, pt.diff]);
-          if (Math.abs(pt.diff) > TH) p1DiffAnom.push({value:[pt.angle, pt.diff]});
-          c1.setOption({ series: [{data:p1X},{data:p1Y},{data:p1Z},{data:p1Mag},{data:p1Anom}] });
-          c3.setOption({ series: [{data:p1Diff},{data:p1DiffAnom}] });
-        } else {
-          p2X.push([pt.angle, pt.x]); p2Y.push([pt.angle, pt.y]); p2Z.push([pt.angle, pt.z]); p2Mag.push([pt.angle, pt.mag]);
-          if (pt.anomaly) p2Anom.push({value:[pt.angle, pt.z]});
-          p2Diff.push([pt.angle, pt.diff]);
-          if (Math.abs(pt.diff) > TH) p2DiffAnom.push({value:[pt.angle, pt.diff]});
-          c2.setOption({ series: [{data:p2X},{data:p2Y},{data:p2Z},{data:p2Mag},{data:p2Anom}] });
-          c4.setOption({ series: [{data:p2Diff},{data:p2DiffAnom}] });
-        }
+        bufferPoints.push(pt);
       };
 
       window.p1X = p1X; window.p1Y = p1Y; window.p1Z = p1Z; window.p1Mag = p1Mag; window.p1Diff = p1Diff;
@@ -5372,7 +5386,7 @@
       };
 
       if (pendingPoints.length > 0) {
-        pendingPoints.forEach(pt => addDataPoint(pt));
+        pendingPoints.forEach(pt => bufferPoints.push(pt));
         pendingPoints = [];
       }
 

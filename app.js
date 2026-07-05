@@ -68,7 +68,10 @@ app.post('/data', (req, res) => {
 });
 
 function saveCycle() {
-  if (currentPass1.length === 0 && currentPass2.length === 0) return;
+  // 只要正向或反向有一个是空的，就说明周期不完整，不保存
+  if (currentPass1.length === 0 || currentPass2.length === 0) return;
+  // ... 后续保存代码保持不变
+}
   const record = {
     id: ++historyIdCounter,
     timestamp: new Date().toLocaleString(),

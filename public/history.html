@@ -28,7 +28,7 @@
     <h3 id="detailTitle"></h3>
     <div class="charts-container" id="chartsArea"></div>
     <div class="export-btns" id="exportArea">
-      <button onclick="exportCurrent('png')">导出图表图片</button>
+      <button onclick="exportCurrent('png')">导出图表图片(四合一)</button>
       <button onclick="exportCurrent('json')">导出 JSON</button>
       <button onclick="exportCurrent('xlsx')">导出 Excel</button>
       <button onclick="exportCurrent('txt')">导出 TXT</button>
@@ -119,16 +119,7 @@
       const rec = currentRecord;
       switch (format) {
         case 'png':
-          ['chart1','chart2','chart3','chart4'].forEach(id => {
-            const chart = echarts.getInstanceByDom(document.getElementById(id));
-            if (chart) {
-              const url = chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#111' });
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `chart_${id}.png`;
-              a.click();
-            }
-          });
+          exportCombinedPNG();
           break;
         case 'json':
           downloadFile(JSON.stringify(rec, null, 2), 'record.json', 'application/json');
@@ -140,6 +131,56 @@
           exportToTxt(rec);
           break;
       }
+    }
+
+    // 四张图合并为一张导出
+    function exportCombinedPNG() {
+      const chartIds = ['chart1', 'chart2', 'chart3', 'chart4'];
+      const charts = chartIds.map(id => echarts.getInstanceByDom(document.getElementById(id)));
+      if (charts.some(c => !c)) return alert('图表未就绪');
+
+      // 获取四张图的图片数据
+      const urls = charts.map(c => c.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#111' }));
+
+      // 创建合并用的 canvas
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+
+      // 设定合并后的尺寸（2x2 网格）
+      const singleWidth = 800;
+      const singleHeight = 500;
+      canvas.width = singleWidth * 2;
+      canvas.height = singleHeight * 2;
+
+      // 绘制深色背景
+      ctx.fillStyle = '#111111';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // 逐个加载图片并绘制
+      let loadedCount = 0;
+      const positions = [
+        { x: 0, y: 0 },                    // 左上
+        { x: singleWidth, y: 0 },          // 右上
+        { x: 0, y: singleHeight },         // 左下
+        { x: singleWidth, y: singleHeight } // 右下
+      ];
+
+      urls.forEach((url, i) => {
+        const img = new Image();
+        img.onload = () => {
+          ctx.drawImage(img, positions[i].x, positions[i].y, singleWidth, singleHeight);
+          loadedCount++;
+          if (loadedCount === 4) {
+            // 全部绘制完成，触发下载
+            const mergedURL = canvas.toDataURL('image/png');
+            const a = document.createElement('a');
+            a.href = mergedURL;
+            a.download = 'combined_charts.png';
+            a.click();
+          }
+        };
+        img.src = url;
+      });
     }
 
     function downloadFile(content, filename, mime) {
@@ -155,8 +196,7 @@
     function exportToExcel(rec) {
       const wb = XLSX.utils.book_new();
       const p1Data = [['角度','X','Y','Z','Mag','Diff']];
-      const len1 = rec.pass1Data.p1Z.length;
-      for (let i=0; i<len1; i++) {
+      rec.pass1Data.p1Z.forEach((_, i) => {
         p1Data.push([
           rec.pass1Data.p1Z[i][0],
           rec.pass1Data.p1X[i][1],
@@ -165,12 +205,12 @@
           rec.pass1Data.p1Mag[i][1],
           rec.pass1Data.p1Diff[i][1]
         ]);
-      }
+      });
       const ws1 = XLSX.utils.aoa_to_sheet(p1Data);
       XLSX.utils.book_append_sheet(wb, ws1, 'Pass1');
+
       const p2Data = [['角度','X','Y','Z','Mag','Diff']];
-      const len2 = rec.pass2Data.p2Z.length;
-      for (let i=0; i<len2; i++) {
+      rec.pass2Data.p2Z.forEach((_, i) => {
         p2Data.push([
           rec.pass2Data.p2Z[i][0],
           rec.pass2Data.p2X[i][1],
@@ -179,7 +219,7 @@
           rec.pass2Data.p2Mag[i][1],
           rec.pass2Data.p2Diff[i][1]
         ]);
-      }
+      });
       const ws2 = XLSX.utils.aoa_to_sheet(p2Data);
       XLSX.utils.book_append_sheet(wb, ws2, 'Pass2');
       XLSX.writeFile(wb, 'record.xlsx');
