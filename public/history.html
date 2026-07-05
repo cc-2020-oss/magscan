@@ -7,53 +7,60 @@
   <link rel="stylesheet" href="/css/main.css">
   <link rel="stylesheet" href="/css/noscript.css">
   <script src="/echarts.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
   <style>
-    body { background:#1a1a2e; color:#eee; font-family:"Microsoft YaHei",sans-serif; padding:10px; }
+    body { background:#000; color:#eee; font-family:"Microsoft YaHei",sans-serif; padding:10px; }
     .back-btn { display:inline-block; margin-bottom:10px; padding:8px 15px; background:#e94560; color:white; border-radius:6px; text-decoration:none; }
-    .record-item { background:#16213e; padding:10px; margin:10px 0; border-radius:8px; cursor:pointer; }
-    .record-item:hover { background:#1e2e4a; }
+    .record-item { background:#111; padding:10px; margin:10px 0; border-radius:8px; cursor:pointer; }
+    .record-item:hover { background:#222; }
     .charts-container { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
-    .chart-box { width:100%; height:250px; background:rgba(0,0,0,0.3); border-radius:8px; }
+    .chart-box { width:100%; height:250px; background:#111; border-radius:8px; }
+    .export-btns { margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; }
+    .export-btns button { background:#333; color:white; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; }
+    .export-btns button:hover { background:#555; }
   </style>
 </head>
 <body>
   <a href="index.html" class="back-btn">← 返回</a>
-  <h2>📋 保存的历史记录</h2>
+  <h2>保存的历史记录</h2>
   <div id="list"></div>
   <div id="detail" style="display:none;">
     <h3 id="detailTitle"></h3>
     <div class="charts-container" id="chartsArea"></div>
+    <div class="export-btns" id="exportArea">
+      <button onclick="exportCurrent('png')">导出图表图片</button>
+      <button onclick="exportCurrent('json')">导出 JSON</button>
+      <button onclick="exportCurrent('xlsx')">导出 Excel</button>
+      <button onclick="exportCurrent('txt')">导出 TXT</button>
+    </div>
   </div>
 
   <script>
-    const serverIP = localStorage.getItem('serverIP') || '192.168.43.100';
+    const serverIP = localStorage.getItem('serverIP') || '47.96.190.248';
     const serverPort = localStorage.getItem('serverPort') || '3000';
     const baseURL = `http://${serverIP}:${serverPort}`;
+    let currentRecord = null;
 
     async function loadList() {
       try {
         const res = await fetch(baseURL + '/history');
         const list = await res.json();
         const listDiv = document.getElementById('list');
-        if (list.length === 0) {
-          listDiv.innerHTML = '<p>暂无历史记录</p>';
-          return;
-        }
+        if (list.length === 0) { listDiv.innerHTML = '<p>暂无历史记录</p>'; return; }
         listDiv.innerHTML = list.map(r => 
           `<div class="record-item" onclick="showDetail(${r.id})">📅 ${r.timestamp} （记录 #${r.id}）</div>`
         ).join('');
       } catch (e) {
-        alert('加载历史列表失败: ' + e.message);
-        document.getElementById('list').innerHTML = '<p style="color:red;">加载失败，请检查服务器连接</p>';
+        document.getElementById('list').innerHTML = '<p style="color:red;">加载失败</p>';
       }
     }
 
     async function showDetail(id) {
       try {
         const res = await fetch(`${baseURL}/history/${id}`);
-        const record = await res.json();
+        currentRecord = await res.json();
         document.getElementById('detail').style.display = 'block';
-        document.getElementById('detailTitle').textContent = `记录 #${id}  - ${record.timestamp}`;
+        document.getElementById('detailTitle').textContent = `记录 #${id}  - ${currentRecord.timestamp}`;
 
         const area = document.getElementById('chartsArea');
         area.innerHTML = `
@@ -67,31 +74,20 @@
         const grid = { top:35, bottom:50, left:50, right:10 };
         const xA = { type:'value', name:'角度°', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'} };
         const yA = { type:'value', name:'uT', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'} };
-        const dataZoomConfig = [
-          { type: 'inside', xAxisIndex: 0 },
-          { type: 'slider', xAxisIndex: 0, bottom: 5 }
-        ];
+        const dataZoomConfig = [ { type: 'inside', xAxisIndex: 0 }, { type: 'slider', xAxisIndex: 0, bottom: 5 } ];
 
         function drawChart(domId, title, yDataArr) {
           const chart = echarts.init(document.getElementById(domId));
-          const series = yDataArr.map(s => {
-            // 限制每个系列最多显示 2000 个点
-            let data = s.data || [];
-            if (data.length > 2000) data = data.slice(-2000);
-            return {
-              name: s.name,
-              type: 'line',
-              data: data,
-              lineStyle: { width: s.width || 1, color: s.color, type: s.type || 'solid' },
-              symbol: 'none'
-            };
-          });
+          const series = yDataArr.map(s => ({
+            name: s.name, type: 'line', data: s.data,
+            lineStyle: { width: s.width || 1, color: s.color, type: s.type || 'solid' }, symbol: 'none'
+          }));
           chart.setOption({ title:{text:title,left:'center',textStyle:{color:'#eee',fontSize:13}}, grid, xAxis:xA, yAxis:yA, dataZoom: dataZoomConfig, series });
           return chart;
         }
 
-        const pass1 = record.pass1Data;
-        const pass2 = record.pass2Data;
+        const pass1 = currentRecord.pass1Data;
+        const pass2 = currentRecord.pass2Data;
 
         drawChart('chart1', 'Pass 1 磁场', [
           { name:'X', data: pass1.p1X || [], color:'#ff6b6b', width:1 },
@@ -114,8 +110,91 @@
 
         document.getElementById('detail').scrollIntoView({ behavior: 'smooth' });
       } catch (e) {
-        alert('加载详情失败: ' + e.message);
+        alert('加载详情失败');
       }
+    }
+
+    function exportCurrent(format) {
+      if (!currentRecord) return alert('请先选择一条记录');
+      const rec = currentRecord;
+      switch (format) {
+        case 'png':
+          ['chart1','chart2','chart3','chart4'].forEach(id => {
+            const chart = echarts.getInstanceByDom(document.getElementById(id));
+            if (chart) {
+              const url = chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#111' });
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `chart_${id}.png`;
+              a.click();
+            }
+          });
+          break;
+        case 'json':
+          downloadFile(JSON.stringify(rec, null, 2), 'record.json', 'application/json');
+          break;
+        case 'xlsx':
+          exportToExcel(rec);
+          break;
+        case 'txt':
+          exportToTxt(rec);
+          break;
+      }
+    }
+
+    function downloadFile(content, filename, mime) {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function exportToExcel(rec) {
+      const wb = XLSX.utils.book_new();
+      const p1Data = [['角度','X','Y','Z','Mag','Diff']];
+      const len1 = rec.pass1Data.p1Z.length;
+      for (let i=0; i<len1; i++) {
+        p1Data.push([
+          rec.pass1Data.p1Z[i][0],
+          rec.pass1Data.p1X[i][1],
+          rec.pass1Data.p1Y[i][1],
+          rec.pass1Data.p1Z[i][1],
+          rec.pass1Data.p1Mag[i][1],
+          rec.pass1Data.p1Diff[i][1]
+        ]);
+      }
+      const ws1 = XLSX.utils.aoa_to_sheet(p1Data);
+      XLSX.utils.book_append_sheet(wb, ws1, 'Pass1');
+      const p2Data = [['角度','X','Y','Z','Mag','Diff']];
+      const len2 = rec.pass2Data.p2Z.length;
+      for (let i=0; i<len2; i++) {
+        p2Data.push([
+          rec.pass2Data.p2Z[i][0],
+          rec.pass2Data.p2X[i][1],
+          rec.pass2Data.p2Y[i][1],
+          rec.pass2Data.p2Z[i][1],
+          rec.pass2Data.p2Mag[i][1],
+          rec.pass2Data.p2Diff[i][1]
+        ]);
+      }
+      const ws2 = XLSX.utils.aoa_to_sheet(p2Data);
+      XLSX.utils.book_append_sheet(wb, ws2, 'Pass2');
+      XLSX.writeFile(wb, 'record.xlsx');
+    }
+
+    function exportToTxt(rec) {
+      let txt = 'Angle\tX\tY\tZ\tMag\tDiff\n';
+      rec.pass1Data.p1Z.forEach((_, i) => {
+        txt += `${rec.pass1Data.p1Z[i][0]}\t${rec.pass1Data.p1X[i][1]}\t${rec.pass1Data.p1Y[i][1]}\t${rec.pass1Data.p1Z[i][1]}\t${rec.pass1Data.p1Mag[i][1]}\t${rec.pass1Data.p1Diff[i][1]}\n`;
+      });
+      txt += '\nPass2\n';
+      rec.pass2Data.p2Z.forEach((_, i) => {
+        txt += `${rec.pass2Data.p2Z[i][0]}\t${rec.pass2Data.p2X[i][1]}\t${rec.pass2Data.p2Y[i][1]}\t${rec.pass2Data.p2Z[i][1]}\t${rec.pass2Data.p2Mag[i][1]}\t${rec.pass2Data.p2Diff[i][1]}\n`;
+      });
+      downloadFile(txt, 'record.txt', 'text/plain');
     }
 
     loadList();

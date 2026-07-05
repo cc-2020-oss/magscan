@@ -19,6 +19,12 @@ let dataHistory = [];
 let historyRecords = [];
 let historyIdCounter = 0;
 
+// 自动保存相关
+let currentPass1 = [];
+let currentPass2 = [];
+let cycleEnded = false;
+let lastAngle2 = -1;
+
 // 首页
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -33,9 +39,53 @@ app.post('/data', (req, res) => {
   pt.totalPoints = pt.totalPoints || 0;
   dataHistory.push(pt);
   io.emit('scanPoint', pt);
-  console.log('收到数据:', pt.angle, pt.z);   // ← 日志输出在这里
+
+  if (pt.pass === 1) {
+    if (!cycleEnded) {
+      currentPass1.push({ angle: pt.angle, x: pt.x, y: pt.y, z: pt.z, mag: pt.mag, diff: pt.diff, anomaly: pt.anomaly });
+    }
+  } else if (pt.pass === 2) {
+    if (!cycleEnded) {
+      currentPass2.push({ angle: pt.angle, x: pt.x, y: pt.y, z: pt.z, mag: pt.mag, diff: pt.diff, anomaly: pt.anomaly });
+      if (pt.angle <= 0 && lastAngle2 > 0) {
+        saveCycle();
+      }
+      lastAngle2 = pt.angle;
+    }
+  }
+
+  console.log('收到数据:', pt.angle, pt.z);
   res.send('ok');
 });
+
+function saveCycle() {
+  if (currentPass1.length === 0 && currentPass2.length === 0) return;
+  const record = {
+    id: ++historyIdCounter,
+    timestamp: new Date().toLocaleString(),
+    pass1Data: {
+      p1X: currentPass1.map(p => [p.angle, p.x]),
+      p1Y: currentPass1.map(p => [p.angle, p.y]),
+      p1Z: currentPass1.map(p => [p.angle, p.z]),
+      p1Mag: currentPass1.map(p => [p.angle, p.mag]),
+      p1Diff: currentPass1.map(p => [p.angle, p.diff])
+    },
+    pass2Data: {
+      p2X: currentPass2.map(p => [p.angle, p.x]),
+      p2Y: currentPass2.map(p => [p.angle, p.y]),
+      p2Z: currentPass2.map(p => [p.angle, p.z]),
+      p2Mag: currentPass2.map(p => [p.angle, p.mag]),
+      p2Diff: currentPass2.map(p => [p.angle, p.diff])
+    }
+  };
+  historyRecords.push(record);
+  console.log(`自动保存周期记录 ID: ${record.id}`);
+  io.emit('newHistoryRecord', { id: record.id, timestamp: record.timestamp });
+  currentPass1 = [];
+  currentPass2 = [];
+  cycleEnded = false;
+  lastAngle2 = -1;
+}
 
 // AI 分析接口（HTTP）
 app.post('/analyze', async (req, res) => {
@@ -74,21 +124,12 @@ app.post('/analyze', async (req, res) => {
 // 清除数据
 app.get('/clear', (req, res) => { dataHistory = []; res.send('ok'); });
 
-// 保存本轮数据（兼容斜杠）
-app.post(['/save', '/save/'], (req, res) => {
-  const { timestamp, pass1Data, pass2Data } = req.body;
-  const record = { id: ++historyIdCounter, timestamp: timestamp || new Date().toISOString(), pass1Data, pass2Data };
-  historyRecords.push(record);
-  console.log(`保存记录 ID: ${record.id}`);
-  res.json({ success: true, id: record.id });
-});
-
-// 获取历史记录列表
+// 历史记录列表
 app.get('/history', (req, res) => {
   res.json(historyRecords.map(r => ({ id: r.id, timestamp: r.timestamp })));
 });
 
-// 获取某条历史记录详情
+// 历史记录详情
 app.get('/history/:id', (req, res) => {
   const record = historyRecords.find(r => r.id === parseInt(req.params.id));
   if (!record) return res.status(404).json({ error: '未找到' });
@@ -98,24 +139,13 @@ app.get('/history/:id', (req, res) => {
 // Socket.IO 连接处理
 io.on('connection', (socket) => {
   console.log('App 已连接');
-
-  // 发送历史数据
-  if (dataHistory.length > 0) {
-    dataHistory.forEach(pt => socket.emit('scanPoint', pt));
-  }
-
-  // 控制指令
+  if (dataHistory.length > 0) dataHistory.forEach(pt => socket.emit('scanPoint', pt));
   socket.on('togglePower', () => {});
   socket.on('setDirection', () => {});
-
-  // AI 分析（通过 Socket.IO）
   socket.on('analyze', async (data) => {
     try {
       const { dataPoints } = data;
-      if (!dataPoints || dataPoints.length === 0) {
-        socket.emit('analyzeResult', { error: '数据为空' });
-        return;
-      }
+      if (!dataPoints || dataPoints.length === 0) { socket.emit('analyzeResult', { error: '数据为空' }); return; }
       const recent = dataPoints.slice(-100);
       const angles = recent.map(p => p.angle);
       const zValues = recent.map(p => p.z);
@@ -144,25 +174,22 @@ io.on('connection', (socket) => {
       socket.emit('analyzeResult', { error: 'AI 分析失败: ' + error.message });
     }
   });
-
   socket.emit('stateUpdate', { power: false, direction: 'forward' });
 });
 
-// ===== UDP 广播发现服务 =====
+// UDP 广播发现服务
 const UDP_PORT = 3001;
 const udpSocket = dgram.createSocket('udp4');
 udpSocket.on('message', (msg, rinfo) => {
   if (msg.toString() === 'magscan-discover') {
     const reply = Buffer.from(`magscan-server:${PORT}`);
     udpSocket.send(reply, rinfo.port, rinfo.address);
-    console.log(`回复广播给 ${rinfo.address}`);
   }
 });
 udpSocket.bind(UDP_PORT, '0.0.0.0', () => {
   console.log(`UDP 发现服务监听端口 ${UDP_PORT}`);
 });
 
-// ===== 启动 HTTP 服务 =====
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`服务器运行在端口 ${PORT}`);

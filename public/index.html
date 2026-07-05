@@ -35,7 +35,6 @@
       <button id="clearP1Btn">清正</button>
       <button id="clearP2Btn">清反</button>
       <button id="aiBtn">AI分析</button>
-      <button id="saveBtn">保存</button>
       <button id="historyBtn">历史</button>
       <span class="info">
         <span id="modeIndicator">扫描中...</span> | 
@@ -5022,6 +5021,10 @@
   </script>
 
   <script>
+    // ========== 公网服务器地址 ==========
+    const PUBLIC_IP = "47.96.190.248";
+    const PUBLIC_PORT = "3000";
+
     // ========== 全局变量 ==========
     let useServer = false, socket = null;
     let currentServerIP = '';
@@ -5045,7 +5048,6 @@
     const clearP1Btn = document.getElementById('clearP1Btn');
     const clearP2Btn = document.getElementById('clearP2Btn');
     const aiBtn = document.getElementById('aiBtn');
-    const saveBtn = document.getElementById('saveBtn');
     const historyBtn = document.getElementById('historyBtn');
     const aiResultBox = document.getElementById('aiResultBox');
     const aiText = document.getElementById('aiText');
@@ -5207,9 +5209,15 @@
       }
     }
 
+    // ========== 自动连接（优先公网，回退内网扫描） ==========
     function autoConnect() {
       if (tryBrowserMode()) return;
-      tryAppMode();
+      modeIndicator.textContent = '尝试公网连接...';
+      modeIndicator.style.color = '#f0ad4e';
+      connectToServer(PUBLIC_IP, PUBLIC_PORT);
+      setTimeout(() => {
+        if (!useServer) tryAppMode();
+      }, 5000);
     }
 
     autoConnect();
@@ -5275,37 +5283,6 @@
       aiBtn.textContent = '分析中...';
       aiResultBox.style.display = 'none';
       socket.emit('analyze', { dataPoints });
-    });
-
-    saveBtn.addEventListener('click', () => {
-      if (!window.p1Z || window.p1Z.length === 0) { alert('暂无正向数据'); return; }
-      if (!useServer || !socket) { alert('请先连接服务器'); return; }
-      const pass1Data = {
-        p1X: (window.p1X || []).map(p => [p[0], p[1]]),
-        p1Y: (window.p1Y || []).map(p => [p[0], p[1]]),
-        p1Z: (window.p1Z || []).map(p => [p[0], p[1]]),
-        p1Mag: (window.p1Mag || []).map(p => [p[0], p[1]]),
-        p1Diff: (window.p1Diff || []).map(p => [p[0], p[1]])
-      };
-      const pass2Data = {
-        p2X: (window.p2X || []).map(p => [p[0], p[1]]),
-        p2Y: (window.p2Y || []).map(p => [p[0], p[1]]),
-        p2Z: (window.p2Z || []).map(p => [p[0], p[1]]),
-        p2Mag: (window.p2Mag || []).map(p => [p[0], p[1]]),
-        p2Diff: (window.p2Diff || []).map(p => [p[0], p[1]])
-      };
-      const data = { timestamp: new Date().toLocaleString(), pass1Data, pass2Data };
-      fetch(`http://${currentServerIP}:${currentServerPort}/save`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      })
-      .then(res => res.json())
-      .then(result => {
-        if (result.success) alert('保存成功！记录ID: ' + result.id);
-        else alert('保存失败');
-      })
-      .catch(err => alert('保存请求失败: ' + err.message));
     });
 
     historyBtn.addEventListener('click', () => {
