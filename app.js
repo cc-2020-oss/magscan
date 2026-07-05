@@ -73,7 +73,7 @@ function saveCycle() {
     console.log('周期不完整，跳过保存 (正向点数:' + currentPass1.length + ', 反向点数:' + currentPass2.length + ')');
     return;
   }
-  
+
   const record = {
     id: ++historyIdCounter,
     timestamp: new Date().toLocaleString(),
@@ -94,7 +94,7 @@ function saveCycle() {
   };
   historyRecords.push(record);
   
-  // 限制最多保留20组记录
+  // 限制最多保留20组记录，超过则删除最旧的一组
   if (historyRecords.length > 20) {
     historyRecords.shift();
   }
