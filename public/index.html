@@ -15,7 +15,6 @@
     .my-controls { display:flex; align-items:center; gap:10px; padding:10px 20px; background:#111111; flex-wrap:wrap; }
     .my-controls h1 { font-size:1.2em; color:#e94560; cursor:pointer; }
     .my-controls button { padding:8px 15px; border:none; border-radius:6px; cursor:pointer; font-size:0.9em; font-weight:bold; color:white; background:#333333; transition:0.3s; }
-    .my-controls button.active { background:#555555; }
     .my-controls button:hover { background:#444444; }
     .info { margin-left:auto; font-size:0.8em; color:#aaa; display:flex; align-items:center; gap:8px; }
     #modeIndicator { font-weight:bold; }
@@ -27,8 +26,6 @@
   <div id="wrapper">
     <div class="my-controls">
       <h1 title="双击可切换离线回放">磁扫描监控</h1>
-      <button id="forwardBtn" class="active">正向</button>
-      <button id="backwardBtn">反向</button>
       <button id="aiBtn">AI分析</button>
       <button id="historyBtn">历史</button>
       <span class="info">
@@ -5027,12 +5024,10 @@
     let pendingPoints = [];
     let isOfflinePlaying = false;
 
-    // ===== 批量更新相关变量 =====
-    let bufferPoints = [];           // 缓冲池，存放收到的数据点
-    const UPDATE_INTERVAL = 100;     // 每 100ms 批量更新一次图表
-    const MAX_POINTS = 2000;         // 每个图表最多保留 2000 个点
+    let bufferPoints = [];
+    const UPDATE_INTERVAL = 150;     // 批量更新间隔（毫秒），数值越大越平滑
+    const MAX_POINTS = 2000;
 
-    // ===== 自动清除周期相关变量 =====
     let lastPassForClear = 0;
     let lastAngleForClear = 0;
 
@@ -5045,8 +5040,6 @@
 
     const modeIndicator = document.getElementById('modeIndicator');
     const progressInfo = document.getElementById('progressInfo');
-    const forwardBtn = document.getElementById('forwardBtn');
-    const backwardBtn = document.getElementById('backwardBtn');
     const aiBtn = document.getElementById('aiBtn');
     const historyBtn = document.getElementById('historyBtn');
     const aiResultBox = document.getElementById('aiResultBox');
@@ -5093,12 +5086,9 @@
         });
 
         socket.on('scanPoint', (pt) => {
-          // 把收到的点放入缓冲池，而不是立即绘图
           bufferPoints.push(pt);
-
           progressInfo.textContent = `${pt.currentPoint || 0}/${pt.totalPoints || 0}  角度:${pt.angle?.toFixed(1) || 0}°  Z:${pt.z?.toFixed(1) || 0}uT`;
 
-          // 自动清除逻辑（仍然在收到点时判断）
           if (pt.pass === 2 && pt.angle <= 5 && lastPassForClear === 2 && lastAngleForClear > pt.angle) {
             if (typeof clearPass1 === 'function') clearPass1();
             if (typeof clearPass2 === 'function') clearPass2();
@@ -5132,7 +5122,6 @@
       }
     }
 
-    // ========== 离线回放控制 ==========
     function stopPlayback() {
       if (playbackTimer) { clearInterval(playbackTimer); playbackTimer = null; }
       isOfflinePlaying = false;
@@ -5262,18 +5251,6 @@
 
     autoConnect();
 
-    forwardBtn.addEventListener('click', () => {
-      forwardBtn.classList.add('active'); backwardBtn.classList.remove('active');
-      if (useServer && socket) socket.emit('setDirection', 'forward');
-      else { if (isOfflinePlaying) stopPlayback(); currentData = forwardData; }
-    });
-
-    backwardBtn.addEventListener('click', () => {
-      backwardBtn.classList.add('active'); forwardBtn.classList.remove('active');
-      if (useServer && socket) socket.emit('setDirection', 'backward');
-      else { if (isOfflinePlaying) stopPlayback(); currentData = backwardData; }
-    });
-
     aiBtn.addEventListener('click', () => {
       if (!window.p1Z || window.p1Z.length === 0) { alert('暂无正向数据'); return; }
       if (!useServer || !socket) { alert('请先连接服务器'); return; }
@@ -5308,43 +5285,41 @@
 
       c1.setOption({ title:{text:'Pass 1',left:'center',textStyle:{color:'#eee'}}, grid, xAxis:xA, yAxis:yA, dataZoom: dataZoomConfig,
         series:[
-          { name:'X', type:'line', data:[], lineStyle:{width:1,color:'#ff6b6b'}, symbol:'none' },
-          { name:'Y', type:'line', data:[], lineStyle:{width:1,color:'#51cf66'}, symbol:'none' },
-          { name:'Z', type:'line', data:[], lineStyle:{width:1.5,color:'#339af0'}, symbol:'none' },
-          { name:'Mag', type:'line', data:[], lineStyle:{width:1,color:'#f06595',type:'dashed'}, symbol:'none' },
+          { name:'X', type:'line', data:[], lineStyle:{width:1,color:'#ff6b6b'}, symbol:'none', smooth:true },
+          { name:'Y', type:'line', data:[], lineStyle:{width:1,color:'#51cf66'}, symbol:'none', smooth:true },
+          { name:'Z', type:'line', data:[], lineStyle:{width:1.5,color:'#339af0'}, symbol:'none', smooth:true },
+          { name:'Mag', type:'line', data:[], lineStyle:{width:1,color:'#f06595',type:'dashed'}, symbol:'none', smooth:true },
           { name:'异常', type:'scatter', data:[], symbolSize:10, itemStyle:{color:'#f00'}, symbol:'triangle' }
         ]});
       c2.setOption({ title:{text:'Pass 2',left:'center',textStyle:{color:'#eee'}}, grid, xAxis:xA, yAxis:yA, dataZoom: dataZoomConfig,
         series:[
-          { name:'X', type:'line', data:[], lineStyle:{width:1,color:'#ff6b6b'}, symbol:'none' },
-          { name:'Y', type:'line', data:[], lineStyle:{width:1,color:'#51cf66'}, symbol:'none' },
-          { name:'Z', type:'line', data:[], lineStyle:{width:1.5,color:'#339af0'}, symbol:'none' },
-          { name:'Mag', type:'line', data:[], lineStyle:{width:1,color:'#f06595',type:'dashed'}, symbol:'none' },
+          { name:'X', type:'line', data:[], lineStyle:{width:1,color:'#ff6b6b'}, symbol:'none', smooth:true },
+          { name:'Y', type:'line', data:[], lineStyle:{width:1,color:'#51cf66'}, symbol:'none', smooth:true },
+          { name:'Z', type:'line', data:[], lineStyle:{width:1.5,color:'#339af0'}, symbol:'none', smooth:true },
+          { name:'Mag', type:'line', data:[], lineStyle:{width:1,color:'#f06595',type:'dashed'}, symbol:'none', smooth:true },
           { name:'异常', type:'scatter', data:[], symbolSize:10, itemStyle:{color:'#f00'}, symbol:'triangle' }
         ]});
       c3.setOption({ title:{text:'P1 差值',left:'center',textStyle:{color:'#eee'}}, grid, xAxis:xA, yAxis:{...yA, name:'uT'}, dataZoom: dataZoomConfig,
         series:[
-          { name:'差值', type:'line', data:[], lineStyle:{width:1,color:'#339af0'}, symbol:'none' },
+          { name:'差值', type:'line', data:[], lineStyle:{width:1,color:'#339af0'}, symbol:'none', smooth:true },
           { name:'超阈值', type:'scatter', data:[], symbolSize:8, itemStyle:{color:'#f00'}, symbol:'triangle' }
         ]});
       c4.setOption({ title:{text:'P2 差值',left:'center',textStyle:{color:'#eee'}}, grid, xAxis:xA, yAxis:{...yA, name:'uT'}, dataZoom: dataZoomConfig,
         series:[
-          { name:'差值', type:'line', data:[], lineStyle:{width:1,color:'#339af0'}, symbol:'none' },
+          { name:'差值', type:'line', data:[], lineStyle:{width:1,color:'#339af0'}, symbol:'none', smooth:true },
           { name:'超阈值', type:'scatter', data:[], symbolSize:8, itemStyle:{color:'#f00'}, symbol:'triangle' }
         ]});
       [c3,c4].forEach(c => c.setOption({ series: [{},{},{ name:'+30', type:'line', markLine:{silent:true, data:[{yAxis:TH}], lineStyle:{color:'#f00',type:'dashed'}}, data:[] },{ name:'-30', type:'line', markLine:{silent:true, data:[{yAxis:-TH}], lineStyle:{color:'#f00',type:'dashed'}}, data:[] }] }));
 
-      // ===== 批量更新函数 =====
       function processBuffer() {
         if (bufferPoints.length === 0) return;
-        const points = bufferPoints.splice(0); // 取出所有缓存的点
+        const points = bufferPoints.splice(0);
         points.forEach(pt => {
           if (pt.pass === 1) {
             p1X.push([pt.angle, pt.x]); p1Y.push([pt.angle, pt.y]); p1Z.push([pt.angle, pt.z]); p1Mag.push([pt.angle, pt.mag]);
             if (pt.anomaly) p1Anom.push({value:[pt.angle, pt.z]});
             p1Diff.push([pt.angle, pt.diff]);
             if (Math.abs(pt.diff) > TH) p1DiffAnom.push({value:[pt.angle, pt.diff]});
-            // 限制点数
             while (p1X.length > MAX_POINTS) { p1X.shift(); p1Y.shift(); p1Z.shift(); p1Mag.shift(); p1Diff.shift(); }
           } else {
             p2X.push([pt.angle, pt.x]); p2Y.push([pt.angle, pt.y]); p2Z.push([pt.angle, pt.z]); p2Mag.push([pt.angle, pt.mag]);
@@ -5354,17 +5329,14 @@
             while (p2X.length > MAX_POINTS) { p2X.shift(); p2Y.shift(); p2Z.shift(); p2Mag.shift(); p2Diff.shift(); }
           }
         });
-        // 一次性更新所有图表
         c1.setOption({ series: [{data:p1X},{data:p1Y},{data:p1Z},{data:p1Mag},{data:p1Anom}] });
         c3.setOption({ series: [{data:p1Diff},{data:p1DiffAnom}] });
         c2.setOption({ series: [{data:p2X},{data:p2Y},{data:p2Z},{data:p2Mag},{data:p2Anom}] });
         c4.setOption({ series: [{data:p2Diff},{data:p2DiffAnom}] });
       }
 
-      // 启动定时器，每隔 UPDATE_INTERVAL ms 批量更新一次
       setInterval(processBuffer, UPDATE_INTERVAL);
 
-      // 保存 addDataPoint 供离线回放或其他地方使用（已不需要立即绘图）
       addDataPoint = (pt) => {
         bufferPoints.push(pt);
       };

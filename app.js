@@ -68,10 +68,12 @@ app.post('/data', (req, res) => {
 });
 
 function saveCycle() {
-  // 只要正向或反向有一个是空的，就说明周期不完整，不保存
-  if (currentPass1.length === 0 || currentPass2.length === 0) return;
-  // ... 后续保存代码保持不变
-}
+  // 正向数据点少于100个，说明扫描未完成，不保存
+  if (currentPass1.length < 100 || currentPass2.length === 0) {
+    console.log('周期不完整，跳过保存 (正向点数:' + currentPass1.length + ', 反向点数:' + currentPass2.length + ')');
+    return;
+  }
+  
   const record = {
     id: ++historyIdCounter,
     timestamp: new Date().toLocaleString(),
@@ -92,7 +94,7 @@ function saveCycle() {
   };
   historyRecords.push(record);
   
-  // 限制最多保留20组记录，超过则删除最旧的一组
+  // 限制最多保留20组记录
   if (historyRecords.length > 20) {
     historyRecords.shift();
   }
