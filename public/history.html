@@ -13,7 +13,7 @@
     .back-btn { display:inline-block; margin-bottom:10px; padding:8px 15px; background:#e94560; color:white; border-radius:6px; text-decoration:none; }
     .record-item { background:#111; padding:10px; margin:10px 0; border-radius:8px; cursor:pointer; }
     .record-item:hover { background:#222; }
-    .charts-container { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+    .charts-container { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:10px; margin-top:10px; }
     .chart-box { width:100%; height:250px; background:#111; border-radius:8px; }
     .export-btns { margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; }
     .export-btns button { background:#333; color:white; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; }
@@ -27,8 +27,8 @@
   <div id="detail" style="display:none;">
     <h3 id="detailTitle"></h3>
     <div class="charts-container" id="chartsArea"></div>
-    <div class="export-btns" id="exportArea">
-      <button onclick="exportCurrent('png')">导出图表图片(四合一)</button>
+    <div class="export-btns">
+      <button onclick="exportCurrent('png')">导出图表图片(八合一)</button>
       <button onclick="exportCurrent('json')">导出 JSON</button>
       <button onclick="exportCurrent('xlsx')">导出 Excel</button>
       <button onclick="exportCurrent('txt')">导出 TXT</button>
@@ -68,45 +68,41 @@
           <div id="chart2" class="chart-box"></div>
           <div id="chart3" class="chart-box"></div>
           <div id="chart4" class="chart-box"></div>
+          <div id="chart5" class="chart-box"></div>
+          <div id="chart6" class="chart-box"></div>
+          <div id="chart7" class="chart-box"></div>
+          <div id="chart8" class="chart-box"></div>
         `;
 
-        const TH = 30.0;
         const grid = { top:35, bottom:50, left:50, right:10 };
-        const xA = { type:'value', name:'角度°', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'} };
-        const yA = { type:'value', name:'uT', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'} };
-        const dataZoomConfig = [ { type: 'inside', xAxisIndex: 0 }, { type: 'slider', xAxisIndex: 0, bottom: 5 } ];
+        const xA = { type:'value', name:'距离 (cm)', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'} };
+        const dataZoomConfig = [ { type: 'inside', xAxisIndex: 0 }, { type: 'slider', xAxisIndex: 0, bottom: 5, height: 15 } ];
 
-        function drawChart(domId, title, yDataArr) {
+        function drawChart(domId, title, data, color, yMin, yMax, xMin, xMax) {
           const chart = echarts.init(document.getElementById(domId));
-          const series = yDataArr.map(s => ({
-            name: s.name, type: 'line', data: s.data,
-            lineStyle: { width: s.width || 1, color: s.color, type: s.type || 'solid' }, symbol: 'none'
-          }));
-          chart.setOption({ title:{text:title,left:'center',textStyle:{color:'#eee',fontSize:13}}, grid, xAxis:xA, yAxis:yA, dataZoom: dataZoomConfig, series });
+          chart.setOption({
+            title:{text:title, left:'center', textStyle:{color:'#eee', fontSize:12}},
+            grid, xAxis:{...xA, min:xMin, max:xMax}, yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:yMin, max:yMax},
+            dataZoom: dataZoomConfig,
+            series:[{name:title, type:'line', data:data, lineStyle:{width:1.5, color:color}, symbol:'none', smooth:true}]
+          });
           return chart;
         }
 
         const pass1 = currentRecord.pass1Data;
         const pass2 = currentRecord.pass2Data;
 
-        drawChart('chart1', 'Pass 1 磁场', [
-          { name:'X', data: pass1.p1X || [], color:'#ff6b6b', width:1 },
-          { name:'Y', data: pass1.p1Y || [], color:'#51cf66', width:1 },
-          { name:'Z', data: pass1.p1Z || [], color:'#339af0', width:1.5 },
-          { name:'Mag', data: pass1.p1Mag || [], color:'#f06595', type:'dashed', width:1 }
-        ]);
-        drawChart('chart2', 'Pass 2 磁场', [
-          { name:'X', data: pass2.p2X || [], color:'#ff6b6b', width:1 },
-          { name:'Y', data: pass2.p2Y || [], color:'#51cf66', width:1 },
-          { name:'Z', data: pass2.p2Z || [], color:'#339af0', width:1.5 },
-          { name:'Mag', data: pass2.p2Mag || [], color:'#f06595', type:'dashed', width:1 }
-        ]);
-        drawChart('chart3', 'Pass 1 差值', [
-          { name:'差值', data: pass1.p1Diff || [], color:'#339af0', width:1 }
-        ]);
-        drawChart('chart4', 'Pass 2 差值', [
-          { name:'差值', data: pass2.p2Diff || [], color:'#339af0', width:1 }
-        ]);
+        // 正向四张图
+        drawChart('chart1', '正向 X轴磁通量', pass1.p1X || [], '#ff6b6b', -900, -800, 0, 140);
+        drawChart('chart2', '正向 Y轴磁通量', pass1.p1Y || [], '#51cf66', 0, 4000, 0, 140);
+        drawChart('chart3', '正向 Z轴磁通量', pass1.p1Z || [], '#339af0', 0, 40000, 0, 140);
+        drawChart('chart4', '正向 总磁通量', pass1.p1Mag || [], '#f06595', 35100, 35300, 0, 140);
+
+        // 反向四张图
+        drawChart('chart5', '反向 X轴磁通量', pass2.p2X || [], '#ff6b6b', 0, 150, 0, 150);
+        drawChart('chart6', '反向 Y轴磁通量', pass2.p2Y || [], '#51cf66', 0, 2000, 0, 150);
+        drawChart('chart7', '反向 Z轴磁通量', pass2.p2Z || [], '#339af0', 0, 600, 0, 150);
+        drawChart('chart8', '反向 总磁通量', pass2.p2Mag || [], '#f06595', 2100, 2200, 0, 150);
 
         document.getElementById('detail').scrollIntoView({ behavior: 'smooth' });
       } catch (e) {
@@ -118,63 +114,41 @@
       if (!currentRecord) return alert('请先选择一条记录');
       const rec = currentRecord;
       switch (format) {
-        case 'png':
-          exportCombinedPNG();
-          break;
-        case 'json':
-          downloadFile(JSON.stringify(rec, null, 2), 'record.json', 'application/json');
-          break;
-        case 'xlsx':
-          exportToExcel(rec);
-          break;
-        case 'txt':
-          exportToTxt(rec);
-          break;
+        case 'png': exportCombinedPNG(); break;
+        case 'json': downloadFile(JSON.stringify(rec, null, 2), 'record.json', 'application/json'); break;
+        case 'xlsx': exportToExcel(rec); break;
+        case 'txt': exportToTxt(rec); break;
       }
     }
 
-    // 四张图合并为一张导出
     function exportCombinedPNG() {
-      const chartIds = ['chart1', 'chart2', 'chart3', 'chart4'];
+      const chartIds = ['chart1','chart2','chart3','chart4','chart5','chart6','chart7','chart8'];
       const charts = chartIds.map(id => echarts.getInstanceByDom(document.getElementById(id)));
       if (charts.some(c => !c)) return alert('图表未就绪');
 
-      // 获取四张图的图片数据
       const urls = charts.map(c => c.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#111' }));
-
-      // 创建合并用的 canvas
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
-
-      // 设定合并后的尺寸（2x2 网格）
-      const singleWidth = 800;
-      const singleHeight = 500;
-      canvas.width = singleWidth * 2;
+      const singleWidth = 600, singleHeight = 350;
+      canvas.width = singleWidth * 4;
       canvas.height = singleHeight * 2;
-
-      // 绘制深色背景
       ctx.fillStyle = '#111111';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // 逐个加载图片并绘制
-      let loadedCount = 0;
       const positions = [
-        { x: 0, y: 0 },                    // 左上
-        { x: singleWidth, y: 0 },          // 右上
-        { x: 0, y: singleHeight },         // 左下
-        { x: singleWidth, y: singleHeight } // 右下
+        {x:0,y:0},{x:singleWidth,y:0},{x:singleWidth*2,y:0},{x:singleWidth*3,y:0},
+        {x:0,y:singleHeight},{x:singleWidth,y:singleHeight},{x:singleWidth*2,y:singleHeight},{x:singleWidth*3,y:singleHeight}
       ];
 
+      let loadedCount = 0;
       urls.forEach((url, i) => {
         const img = new Image();
         img.onload = () => {
           ctx.drawImage(img, positions[i].x, positions[i].y, singleWidth, singleHeight);
           loadedCount++;
-          if (loadedCount === 4) {
-            // 全部绘制完成，触发下载
-            const mergedURL = canvas.toDataURL('image/png');
+          if (loadedCount === 8) {
             const a = document.createElement('a');
-            a.href = mergedURL;
+            a.href = canvas.toDataURL('image/png');
             a.download = 'combined_charts.png';
             a.click();
           }
@@ -187,52 +161,36 @@
       const blob = new Blob([content], { type: mime });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.click();
+      a.href = url; a.download = filename; a.click();
       URL.revokeObjectURL(url);
     }
 
     function exportToExcel(rec) {
       const wb = XLSX.utils.book_new();
-      const p1Data = [['角度','X','Y','Z','Mag','Diff']];
+      const p1Data = [['距离','X','Y','Z','总磁通量']];
       rec.pass1Data.p1Z.forEach((_, i) => {
-        p1Data.push([
-          rec.pass1Data.p1Z[i][0],
-          rec.pass1Data.p1X[i][1],
-          rec.pass1Data.p1Y[i][1],
-          rec.pass1Data.p1Z[i][1],
-          rec.pass1Data.p1Mag[i][1],
-          rec.pass1Data.p1Diff[i][1]
-        ]);
+        p1Data.push([rec.pass1Data.p1Z[i][0], rec.pass1Data.p1X[i][1], rec.pass1Data.p1Y[i][1], rec.pass1Data.p1Z[i][1], rec.pass1Data.p1Mag[i][1]]);
       });
       const ws1 = XLSX.utils.aoa_to_sheet(p1Data);
-      XLSX.utils.book_append_sheet(wb, ws1, 'Pass1');
+      XLSX.utils.book_append_sheet(wb, ws1, '正向');
 
-      const p2Data = [['角度','X','Y','Z','Mag','Diff']];
+      const p2Data = [['距离','X','Y','Z','总磁通量']];
       rec.pass2Data.p2Z.forEach((_, i) => {
-        p2Data.push([
-          rec.pass2Data.p2Z[i][0],
-          rec.pass2Data.p2X[i][1],
-          rec.pass2Data.p2Y[i][1],
-          rec.pass2Data.p2Z[i][1],
-          rec.pass2Data.p2Mag[i][1],
-          rec.pass2Data.p2Diff[i][1]
-        ]);
+        p2Data.push([rec.pass2Data.p2Z[i][0], rec.pass2Data.p2X[i][1], rec.pass2Data.p2Y[i][1], rec.pass2Data.p2Z[i][1], rec.pass2Data.p2Mag[i][1]]);
       });
       const ws2 = XLSX.utils.aoa_to_sheet(p2Data);
-      XLSX.utils.book_append_sheet(wb, ws2, 'Pass2');
+      XLSX.utils.book_append_sheet(wb, ws2, '反向');
       XLSX.writeFile(wb, 'record.xlsx');
     }
 
     function exportToTxt(rec) {
-      let txt = 'Angle\tX\tY\tZ\tMag\tDiff\n';
+      let txt = '距离(cm)\tX\tY\tZ\t总磁通量\n';
       rec.pass1Data.p1Z.forEach((_, i) => {
-        txt += `${rec.pass1Data.p1Z[i][0]}\t${rec.pass1Data.p1X[i][1]}\t${rec.pass1Data.p1Y[i][1]}\t${rec.pass1Data.p1Z[i][1]}\t${rec.pass1Data.p1Mag[i][1]}\t${rec.pass1Data.p1Diff[i][1]}\n`;
+        txt += `${rec.pass1Data.p1Z[i][0]}\t${rec.pass1Data.p1X[i][1]}\t${rec.pass1Data.p1Y[i][1]}\t${rec.pass1Data.p1Z[i][1]}\t${rec.pass1Data.p1Mag[i][1]}\n`;
       });
-      txt += '\nPass2\n';
+      txt += '\n反向\n';
       rec.pass2Data.p2Z.forEach((_, i) => {
-        txt += `${rec.pass2Data.p2Z[i][0]}\t${rec.pass2Data.p2X[i][1]}\t${rec.pass2Data.p2Y[i][1]}\t${rec.pass2Data.p2Z[i][1]}\t${rec.pass2Data.p2Mag[i][1]}\t${rec.pass2Data.p2Diff[i][1]}\n`;
+        txt += `${rec.pass2Data.p2Z[i][0]}\t${rec.pass2Data.p2X[i][1]}\t${rec.pass2Data.p2Y[i][1]}\t${rec.pass2Data.p2Z[i][1]}\t${rec.pass2Data.p2Mag[i][1]}\n`;
       });
       downloadFile(txt, 'record.txt', 'text/plain');
     }
