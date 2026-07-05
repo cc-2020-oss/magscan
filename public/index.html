@@ -13,12 +13,10 @@
     .chart-grid { display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:10px; padding:10px; height:calc(100vh - 120px); }
     .chart-box { width:100% !important; height:100% !important; background:#111111; border-radius:8px; }
     .my-controls { display:flex; align-items:center; gap:10px; padding:10px 20px; background:#111111; flex-wrap:wrap; }
-    .my-controls h1 { font-size:1.2em; color:#e94560; }
+    .my-controls h1 { font-size:1.2em; color:#e94560; cursor:pointer; }
     .my-controls button { padding:8px 15px; border:none; border-radius:6px; cursor:pointer; font-size:0.9em; font-weight:bold; color:white; background:#333333; transition:0.3s; }
     .my-controls button.active { background:#555555; }
     .my-controls button:hover { background:#444444; }
-    .btn-power { background:#444444; }
-    .btn-power.on { background:#888888; }
     .info { margin-left:auto; font-size:0.8em; color:#aaa; display:flex; align-items:center; gap:8px; }
     #modeIndicator { font-weight:bold; }
     .ai-result-box { background:#111111; padding:15px; margin:10px; border-radius:10px; max-height:200px; overflow-y:auto; display:none; }
@@ -28,12 +26,9 @@
 
   <div id="wrapper">
     <div class="my-controls">
-      <h1>磁扫描监控</h1>
+      <h1 title="双击可切换离线回放">磁扫描监控</h1>
       <button id="forwardBtn" class="active">正向</button>
       <button id="backwardBtn">反向</button>
-      <button id="powerBtn" class="btn-power">开始</button>
-      <button id="clearP1Btn">清正</button>
-      <button id="clearP2Btn">清反</button>
       <button id="aiBtn">AI分析</button>
       <button id="historyBtn">历史</button>
       <span class="info">
@@ -5021,17 +5016,20 @@
   </script>
 
   <script>
-    // ========== 公网服务器地址 ==========
     const PUBLIC_IP = "47.96.190.248";
     const PUBLIC_PORT = "3000";
 
-    // ========== 全局变量 ==========
     let useServer = false, socket = null;
     let currentServerIP = '';
     let currentServerPort = '3000';
     let forwardData = [], backwardData = [], currentData = [];
     let dataIndex = 0, playbackTimer = null, addDataPoint = null;
     let pendingPoints = [];
+    let isOfflinePlaying = false;   // 离线回放状态
+
+    // ===== 自动清除周期相关变量 =====
+    let lastPassForClear = 0;
+    let lastAngleForClear = 0;
 
     function parseRaw(rawArr) {
       return rawArr.map(r => ({ time: r[1], position: r[2], ch2: r[3], ch4: r[5], ch6: r[7] }));
@@ -5042,17 +5040,13 @@
 
     const modeIndicator = document.getElementById('modeIndicator');
     const progressInfo = document.getElementById('progressInfo');
-    const powerBtn = document.getElementById('powerBtn');
     const forwardBtn = document.getElementById('forwardBtn');
     const backwardBtn = document.getElementById('backwardBtn');
-    const clearP1Btn = document.getElementById('clearP1Btn');
-    const clearP2Btn = document.getElementById('clearP2Btn');
     const aiBtn = document.getElementById('aiBtn');
     const historyBtn = document.getElementById('historyBtn');
     const aiResultBox = document.getElementById('aiResultBox');
     const aiText = document.getElementById('aiText');
 
-    // ========== 连接服务器 ==========
     function connectToServer(ip, port) {
       if (socket) { socket.close(); socket = null; }
       useServer = false;
@@ -5080,6 +5074,7 @@
 
         socket.on('connect', () => {
           useServer = true;
+          isOfflinePlaying = false;
           modeIndicator.textContent = '实时';
           modeIndicator.style.color = '#51cf66';
         });
@@ -5099,11 +5094,18 @@
             pendingPoints.push(pt);
           }
           progressInfo.textContent = `${pt.currentPoint || 0}/${pt.totalPoints || 0}  角度:${pt.angle?.toFixed(1) || 0}°  Z:${pt.z?.toFixed(1) || 0}uT`;
+
+          // ===== 自动清除：检测正反周期结束 =====
+          if (pt.pass === 2 && pt.angle <= 5 && lastPassForClear === 2 && lastAngleForClear > pt.angle) {
+            if (typeof clearPass1 === 'function') clearPass1();
+            if (typeof clearPass2 === 'function') clearPass2();
+          }
+          lastPassForClear = pt.pass;
+          lastAngleForClear = pt.angle;
         });
 
         socket.on('stateUpdate', (s) => {
-          powerBtn.textContent = s.power ? '停止' : '开始';
-          powerBtn.className = s.power ? 'btn-power on' : 'btn-power';
+          // 不再需要更新按钮文字
         });
 
         socket.on('analyzeResult', (result) => {
@@ -5125,11 +5127,56 @@
     function fallbackToOffline() {
       useServer = false;
       if (socket) { socket.close(); socket = null; }
+      if (!isOfflinePlaying) {
+        modeIndicator.textContent = '离线';
+        modeIndicator.style.color = '#f0ad4e';
+      }
+    }
+
+    // ========== 离线回放控制 ==========
+    function stopPlayback() {
+      if (playbackTimer) { clearInterval(playbackTimer); playbackTimer = null; }
+      isOfflinePlaying = false;
       modeIndicator.textContent = '离线';
       modeIndicator.style.color = '#f0ad4e';
     }
 
-    // ========== 模式一：浏览器环境，直接读取地址栏 IP ==========
+    function startPlayback() {
+      if (useServer) return; // 如果已经连上服务器，不启动离线回放
+      isOfflinePlaying = true;
+      modeIndicator.textContent = '离线回放';
+      modeIndicator.style.color = '#f0ad4e';
+      dataIndex = 0;
+      playbackTimer = setInterval(() => {
+        if (dataIndex >= currentData.length) dataIndex = 0;
+        const row = currentData[dataIndex];
+        const angle = row.position, x = row.ch2, y = row.ch6, z = row.ch4;
+        const mag = Math.sqrt(x*x + y*y + z*z);
+        const pt = {
+          pass: currentData === forwardData ? 1 : 2,
+          angle, x, y, z, mag,
+          anomaly: 0, expected: 0, diff: 0,
+          currentPoint: dataIndex + 1, totalPoints: currentData.length
+        };
+        if (addDataPoint) addDataPoint(pt);
+        progressInfo.textContent = `${pt.currentPoint}/${pt.totalPoints}  角度:${angle.toFixed(1)}°  Z:${z.toFixed(1)}uT`;
+        dataIndex++;
+      }, 200);
+    }
+
+    // 双击标题切换离线回放
+    document.querySelector('h1').addEventListener('dblclick', () => {
+      if (useServer) {
+        alert('已连接服务器，离线回放不可用');
+        return;
+      }
+      if (isOfflinePlaying) {
+        stopPlayback();
+      } else {
+        startPlayback();
+      }
+    });
+
     function tryBrowserMode() {
       if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
         const ip = window.location.hostname;
@@ -5146,7 +5193,6 @@
       return false;
     }
 
-    // ========== 模式二：App 环境，自动扫描局域网 ==========
     function tryAppMode() {
       modeIndicator.textContent = '扫描中...';
       modeIndicator.style.color = '#f0ad4e';
@@ -5201,15 +5247,12 @@
     }
 
     function scanCommonSubnets() {
-      const commonSubnets = [
-        '192.168.43','172.20.10','10.48.99','192.168.1','192.168.0','192.168.137','192.168.42'
-      ];
+      const commonSubnets = ['192.168.43','172.20.10','10.48.99','192.168.1','192.168.0','192.168.137','192.168.42'];
       for (const subnet of commonSubnets) {
         if (!useServer) scanSubnet(subnet);
       }
     }
 
-    // ========== 自动连接（优先公网，回退内网扫描） ==========
     function autoConnect() {
       if (tryBrowserMode()) return;
       modeIndicator.textContent = '尝试公网连接...';
@@ -5222,57 +5265,16 @@
 
     autoConnect();
 
-    // ========== 离线回放控制 ==========
-    function stopPlayback() {
-      if (playbackTimer) { clearInterval(playbackTimer); playbackTimer = null; }
-      powerBtn.textContent = '开始'; powerBtn.className = 'btn-power';
-    }
-
-    function startPlayback() {
-      dataIndex = 0;
-      playbackTimer = setInterval(() => {
-        if (dataIndex >= currentData.length) dataIndex = 0;
-        const row = currentData[dataIndex];
-        const angle = row.position, x = row.ch2, y = row.ch6, z = row.ch4;
-        const mag = Math.sqrt(x*x + y*y + z*z);
-        const pt = {
-          pass: currentData === forwardData ? 1 : 2,
-          angle, x, y, z, mag,
-          anomaly: 0, expected: 0, diff: 0,
-          currentPoint: dataIndex + 1, totalPoints: currentData.length
-        };
-        if (addDataPoint) addDataPoint(pt);
-        progressInfo.textContent = `${pt.currentPoint}/${pt.totalPoints}  角度:${angle.toFixed(1)}°  Z:${z.toFixed(1)}uT`;
-        dataIndex++;
-      }, 200);
-      powerBtn.textContent = '停止'; powerBtn.className = 'btn-power on';
-    }
-
-    powerBtn.addEventListener('click', () => {
-      if (useServer && socket) socket.emit('togglePower');
-      else {
-        if (playbackTimer) stopPlayback();
-        else startPlayback();
-      }
-    });
-
     forwardBtn.addEventListener('click', () => {
       forwardBtn.classList.add('active'); backwardBtn.classList.remove('active');
       if (useServer && socket) socket.emit('setDirection', 'forward');
-      else { stopPlayback(); currentData = forwardData; }
+      else { if (isOfflinePlaying) stopPlayback(); currentData = forwardData; }
     });
 
     backwardBtn.addEventListener('click', () => {
       backwardBtn.classList.add('active'); forwardBtn.classList.remove('active');
       if (useServer && socket) socket.emit('setDirection', 'backward');
-      else { stopPlayback(); currentData = backwardData; }
-    });
-
-    clearP1Btn.addEventListener('click', () => {
-      if (typeof clearPass1 === 'function') clearPass1();
-    });
-    clearP2Btn.addEventListener('click', () => {
-      if (typeof clearPass2 === 'function') clearPass2();
+      else { if (isOfflinePlaying) stopPlayback(); currentData = backwardData; }
     });
 
     aiBtn.addEventListener('click', () => {
