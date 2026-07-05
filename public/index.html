@@ -10,7 +10,7 @@
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     body { background:#000000; color:#eee; font-family:"Microsoft YaHei",sans-serif; }
-    .chart-grid { display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:10px; padding:10px; height:calc(100vh - 120px); }
+    .chart-grid { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; grid-template-rows:1fr 1fr; gap:10px; padding:10px; height:calc(100vh - 120px); }
     .chart-box { width:100% !important; height:100% !important; background:#111111; border-radius:8px; }
     .my-controls { display:flex; align-items:center; gap:10px; padding:10px 20px; background:#111111; flex-wrap:wrap; }
     .my-controls h1 { font-size:1.2em; color:#e94560; cursor:pointer; }
@@ -34,10 +34,16 @@
       </span>
     </div>
     <div class="chart-grid">
+      <!-- 正向四张图 -->
       <div id="chart1" class="chart-box"></div>
       <div id="chart2" class="chart-box"></div>
       <div id="chart3" class="chart-box"></div>
       <div id="chart4" class="chart-box"></div>
+      <!-- 反向四张图 -->
+      <div id="chart5" class="chart-box"></div>
+      <div id="chart6" class="chart-box"></div>
+      <div id="chart7" class="chart-box"></div>
+      <div id="chart8" class="chart-box"></div>
     </div>
     <div id="aiResultBox" class="ai-result-box">
       <b>AI 分析结果：</b>
@@ -5025,7 +5031,7 @@
     let isOfflinePlaying = false;
 
     let bufferPoints = [];
-    const UPDATE_INTERVAL = 150;     // 批量更新间隔（毫秒），数值越大越平滑
+    const UPDATE_INTERVAL = 150;
     const MAX_POINTS = 2000;
 
     let lastPassForClear = 0;
@@ -5087,14 +5093,7 @@
 
         socket.on('scanPoint', (pt) => {
           bufferPoints.push(pt);
-          progressInfo.textContent = `${pt.currentPoint || 0}/${pt.totalPoints || 0}  角度:${pt.angle?.toFixed(1) || 0}°  Z:${pt.z?.toFixed(1) || 0}uT`;
-
-          if (pt.pass === 2 && pt.angle <= 5 && lastPassForClear === 2 && lastAngleForClear > pt.angle) {
-            if (typeof clearPass1 === 'function') clearPass1();
-            if (typeof clearPass2 === 'function') clearPass2();
-          }
-          lastPassForClear = pt.pass;
-          lastAngleForClear = pt.angle;
+          progressInfo.textContent = `距离:${pt.position?.toFixed(1) || pt.angle?.toFixed(1) || 0}cm  Z:${pt.z?.toFixed(1) || 0}`;
         });
 
         socket.on('analyzeResult', (result) => {
@@ -5265,104 +5264,157 @@
       window.location.href = 'history.html';
     });
 
-    // ========== ECharts 初始化 ==========
+    // ========== ECharts 初始化（八张图） ==========
     function initCharts() {
       if (typeof echarts === 'undefined') { setTimeout(initCharts, 500); return; }
       const TH = 30.0;
-      const c1 = echarts.init(document.getElementById('chart1'));
-      const c2 = echarts.init(document.getElementById('chart2'));
-      const c3 = echarts.init(document.getElementById('chart3'));
-      const c4 = echarts.init(document.getElementById('chart4'));
-      let p1X=[],p1Y=[],p1Z=[],p1Mag=[],p1Anom=[],p1Diff=[],p1DiffAnom=[];
-      let p2X=[],p2Y=[],p2Z=[],p2Mag=[],p2Anom=[],p2Diff=[],p2DiffAnom=[];
-      const grid = { top:40, bottom:60, left:50, right:10 };
-      const xA = { type:'value', name:'角度°', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'} };
-      const yA = { type:'value', name:'uT', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'} };
-      const dataZoomConfig = [
-        { type: 'inside', xAxisIndex: 0, start: 0, end: 100 },
-        { type: 'slider', xAxisIndex: 0, bottom: 10, height: 20 }
-      ];
+      
+      // 八个图表实例
+      const charts = [];
+      for (let i = 1; i <= 8; i++) {
+        charts[i] = echarts.init(document.getElementById('chart' + i));
+      }
 
-      c1.setOption({ title:{text:'Pass 1',left:'center',textStyle:{color:'#eee'}}, grid, xAxis:xA, yAxis:yA, dataZoom: dataZoomConfig,
-        series:[
-          { name:'X', type:'line', data:[], lineStyle:{width:1,color:'#ff6b6b'}, symbol:'none', smooth:true },
-          { name:'Y', type:'line', data:[], lineStyle:{width:1,color:'#51cf66'}, symbol:'none', smooth:true },
-          { name:'Z', type:'line', data:[], lineStyle:{width:1.5,color:'#339af0'}, symbol:'none', smooth:true },
-          { name:'Mag', type:'line', data:[], lineStyle:{width:1,color:'#f06595',type:'dashed'}, symbol:'none', smooth:true },
-          { name:'异常', type:'scatter', data:[], symbolSize:10, itemStyle:{color:'#f00'}, symbol:'triangle' }
-        ]});
-      c2.setOption({ title:{text:'Pass 2',left:'center',textStyle:{color:'#eee'}}, grid, xAxis:xA, yAxis:yA, dataZoom: dataZoomConfig,
-        series:[
-          { name:'X', type:'line', data:[], lineStyle:{width:1,color:'#ff6b6b'}, symbol:'none', smooth:true },
-          { name:'Y', type:'line', data:[], lineStyle:{width:1,color:'#51cf66'}, symbol:'none', smooth:true },
-          { name:'Z', type:'line', data:[], lineStyle:{width:1.5,color:'#339af0'}, symbol:'none', smooth:true },
-          { name:'Mag', type:'line', data:[], lineStyle:{width:1,color:'#f06595',type:'dashed'}, symbol:'none', smooth:true },
-          { name:'异常', type:'scatter', data:[], symbolSize:10, itemStyle:{color:'#f00'}, symbol:'triangle' }
-        ]});
-      c3.setOption({ title:{text:'P1 差值',left:'center',textStyle:{color:'#eee'}}, grid, xAxis:xA, yAxis:{...yA, name:'uT'}, dataZoom: dataZoomConfig,
-        series:[
-          { name:'差值', type:'line', data:[], lineStyle:{width:1,color:'#339af0'}, symbol:'none', smooth:true },
-          { name:'超阈值', type:'scatter', data:[], symbolSize:8, itemStyle:{color:'#f00'}, symbol:'triangle' }
-        ]});
-      c4.setOption({ title:{text:'P2 差值',left:'center',textStyle:{color:'#eee'}}, grid, xAxis:xA, yAxis:{...yA, name:'uT'}, dataZoom: dataZoomConfig,
-        series:[
-          { name:'差值', type:'line', data:[], lineStyle:{width:1,color:'#339af0'}, symbol:'none', smooth:true },
-          { name:'超阈值', type:'scatter', data:[], symbolSize:8, itemStyle:{color:'#f00'}, symbol:'triangle' }
-        ]});
-      [c3,c4].forEach(c => c.setOption({ series: [{},{},{ name:'+30', type:'line', markLine:{silent:true, data:[{yAxis:TH}], lineStyle:{color:'#f00',type:'dashed'}}, data:[] },{ name:'-30', type:'line', markLine:{silent:true, data:[{yAxis:-TH}], lineStyle:{color:'#f00',type:'dashed'}}, data:[] }] }));
+      // 正向数据数组（Pass1）: X, Y, Z, Mag
+      let p1X=[], p1Y=[], p1Z=[], p1Mag=[];
+      // 反向数据数组（Pass2）: X, Y, Z, Mag
+      let p2X=[], p2Y=[], p2Z=[], p2Mag=[];
 
+      const grid = { top:40, bottom:60, left:55, right:10 };
+      const xAxisCommon = { type:'value', name:'距离 (cm)', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'} };
+
+      // ===== 正向图表配置 =====
+      // 正向 X 轴磁通量（chart1）
+      charts[1].setOption({
+        title:{text:'正向 X轴磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
+        grid, xAxis:{...xAxisCommon, min:0, max:140},
+        yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:-900, max:-800},
+        dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
+        series:[{name:'X', type:'line', data:[], lineStyle:{width:1.5, color:'#ff6b6b'}, symbol:'none', smooth:true}]
+      });
+
+      // 正向 Y 轴磁通量（chart2）
+      charts[2].setOption({
+        title:{text:'正向 Y轴磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
+        grid, xAxis:{...xAxisCommon, min:0, max:140},
+        yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:0, max:4000},
+        dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
+        series:[{name:'Y', type:'line', data:[], lineStyle:{width:1.5, color:'#51cf66'}, symbol:'none', smooth:true}]
+      });
+
+      // 正向 Z 轴磁通量（chart3）
+      charts[3].setOption({
+        title:{text:'正向 Z轴磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
+        grid, xAxis:{...xAxisCommon, min:0, max:140},
+        yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:0, max:40000},
+        dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
+        series:[{name:'Z', type:'line', data:[], lineStyle:{width:1.5, color:'#339af0'}, symbol:'none', smooth:true}]
+      });
+
+      // 正向 总磁通量（chart4）
+      charts[4].setOption({
+        title:{text:'正向 总磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
+        grid, xAxis:{...xAxisCommon, min:0, max:140},
+        yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:35100, max:35300},
+        dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
+        series:[{name:'Mag', type:'line', data:[], lineStyle:{width:1.5, color:'#f06595'}, symbol:'none', smooth:true}]
+      });
+
+      // ===== 反向图表配置 =====
+      // 反向 X 轴磁通量（chart5）
+      charts[5].setOption({
+        title:{text:'反向 X轴磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
+        grid, xAxis:{...xAxisCommon, min:0, max:150},
+        yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:0, max:150},
+        dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
+        series:[{name:'X', type:'line', data:[], lineStyle:{width:1.5, color:'#ff6b6b'}, symbol:'none', smooth:true}]
+      });
+
+      // 反向 Y 轴磁通量（chart6）
+      charts[6].setOption({
+        title:{text:'反向 Y轴磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
+        grid, xAxis:{...xAxisCommon, min:0, max:150},
+        yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:0, max:2000},
+        dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
+        series:[{name:'Y', type:'line', data:[], lineStyle:{width:1.5, color:'#51cf66'}, symbol:'none', smooth:true}]
+      });
+
+      // 反向 Z 轴磁通量（chart7）
+      charts[7].setOption({
+        title:{text:'反向 Z轴磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
+        grid, xAxis:{...xAxisCommon, min:0, max:150},
+        yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:0, max:600},
+        dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
+        series:[{name:'Z', type:'line', data:[], lineStyle:{width:1.5, color:'#339af0'}, symbol:'none', smooth:true}]
+      });
+
+      // 反向 总磁通量（chart8）
+      charts[8].setOption({
+        title:{text:'反向 总磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
+        grid, xAxis:{...xAxisCommon, min:0, max:150},
+        yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:2100, max:2200},
+        dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
+        series:[{name:'Mag', type:'line', data:[], lineStyle:{width:1.5, color:'#f06595'}, symbol:'none', smooth:true}]
+      });
+
+      // ===== 批量处理：添加数据点 + 自动清除 =====
       function processBuffer() {
         if (bufferPoints.length === 0) return;
         const points = bufferPoints.splice(0);
         points.forEach(pt => {
+          const xVal = pt.position || pt.angle;  // 横轴：距离
+          
           if (pt.pass === 1) {
-            p1X.push([pt.angle, pt.x]); p1Y.push([pt.angle, pt.y]); p1Z.push([pt.angle, pt.z]); p1Mag.push([pt.angle, pt.mag]);
-            if (pt.anomaly) p1Anom.push({value:[pt.angle, pt.z]});
-            p1Diff.push([pt.angle, pt.diff]);
-            if (Math.abs(pt.diff) > TH) p1DiffAnom.push({value:[pt.angle, pt.diff]});
-            while (p1X.length > MAX_POINTS) { p1X.shift(); p1Y.shift(); p1Z.shift(); p1Mag.shift(); p1Diff.shift(); }
+            // 正向
+            p1X.push([xVal, pt.x]); p1Y.push([xVal, pt.y]); p1Z.push([xVal, pt.z]); p1Mag.push([xVal, pt.mag]);
+            while (p1X.length > MAX_POINTS) { p1X.shift(); p1Y.shift(); p1Z.shift(); p1Mag.shift(); }
           } else {
-            p2X.push([pt.angle, pt.x]); p2Y.push([pt.angle, pt.y]); p2Z.push([pt.angle, pt.z]); p2Mag.push([pt.angle, pt.mag]);
-            if (pt.anomaly) p2Anom.push({value:[pt.angle, pt.z]});
-            p2Diff.push([pt.angle, pt.diff]);
-            if (Math.abs(pt.diff) > TH) p2DiffAnom.push({value:[pt.angle, pt.diff]});
-            while (p2X.length > MAX_POINTS) { p2X.shift(); p2Y.shift(); p2Z.shift(); p2Mag.shift(); p2Diff.shift(); }
+            // 反向
+            p2X.push([xVal, pt.x]); p2Y.push([xVal, pt.y]); p2Z.push([xVal, pt.z]); p2Mag.push([xVal, pt.mag]);
+            while (p2X.length > MAX_POINTS) { p2X.shift(); p2Y.shift(); p2Z.shift(); p2Mag.shift(); }
           }
+
+          // 自动清除检测
+          if (pt.pass === 2 && (pt.angle || pt.position) <= 5 && lastPassForClear === 2 && lastAngleForClear > (pt.angle || pt.position)) {
+            p1X=[];p1Y=[];p1Z=[];p1Mag=[];p2X=[];p2Y=[];p2Z=[];p2Mag=[];
+            for (let i = 1; i <= 8; i++) {
+              charts[i].setOption({ series: [{data:[]}] });
+            }
+            progressInfo.textContent = '已清除';
+          }
+          lastPassForClear = pt.pass;
+          lastAngleForClear = pt.position || pt.angle;
         });
-        c1.setOption({ series: [{data:p1X},{data:p1Y},{data:p1Z},{data:p1Mag},{data:p1Anom}] });
-        c3.setOption({ series: [{data:p1Diff},{data:p1DiffAnom}] });
-        c2.setOption({ series: [{data:p2X},{data:p2Y},{data:p2Z},{data:p2Mag},{data:p2Anom}] });
-        c4.setOption({ series: [{data:p2Diff},{data:p2DiffAnom}] });
+
+        // 更新所有图表
+        charts[1].setOption({ series: [{data:p1X}] });
+        charts[2].setOption({ series: [{data:p1Y}] });
+        charts[3].setOption({ series: [{data:p1Z}] });
+        charts[4].setOption({ series: [{data:p1Mag}] });
+        charts[5].setOption({ series: [{data:p2X}] });
+        charts[6].setOption({ series: [{data:p2Y}] });
+        charts[7].setOption({ series: [{data:p2Z}] });
+        charts[8].setOption({ series: [{data:p2Mag}] });
       }
 
       setInterval(processBuffer, UPDATE_INTERVAL);
 
-      addDataPoint = (pt) => {
-        bufferPoints.push(pt);
-      };
+      addDataPoint = (pt) => { bufferPoints.push(pt); };
 
-      window.p1X = p1X; window.p1Y = p1Y; window.p1Z = p1Z; window.p1Mag = p1Mag; window.p1Diff = p1Diff;
-      window.p2X = p2X; window.p2Y = p2Y; window.p2Z = p2Z; window.p2Mag = p2Mag; window.p2Diff = p2Diff;
-
-      window.clearPass1 = function() {
-        p1X=[];p1Y=[];p1Z=[];p1Mag=[];p1Anom=[];p1Diff=[];p1DiffAnom=[];
-        c1.setOption({ series: [{data:[]},{data:[]},{data:[]},{data:[]},{data:[]}] });
-        c3.setOption({ series: [{data:[]},{data:[]}] });
-        progressInfo.textContent = 'Pass 1 已清除';
-      };
-      window.clearPass2 = function() {
-        p2X=[];p2Y=[];p2Z=[];p2Mag=[];p2Anom=[];p2Diff=[];p2DiffAnom=[];
-        c2.setOption({ series: [{data:[]},{data:[]},{data:[]},{data:[]},{data:[]}] });
-        c4.setOption({ series: [{data:[]},{data:[]}] });
-        progressInfo.textContent = 'Pass 2 已清除';
-      };
+      // 暴露数据供 AI 分析和保存使用
+      window.p1Z = p1Z;
+      window.p2Z = p2Z;
+      window.p1X = p1X; window.p1Y = p1Y; window.p1Mag = p1Mag;
+      window.p2X = p2X; window.p2Y = p2Y; window.p2Mag = p2Mag;
 
       if (pendingPoints.length > 0) {
         pendingPoints.forEach(pt => bufferPoints.push(pt));
         pendingPoints = [];
       }
 
-      window.addEventListener('resize', () => { c1.resize(); c2.resize(); c3.resize(); c4.resize(); });
+      window.addEventListener('resize', () => {
+        for (let i = 1; i <= 8; i++) charts[i].resize();
+      });
     }
 
     initCharts();
