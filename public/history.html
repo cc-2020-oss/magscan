@@ -15,24 +15,31 @@
     .record-item:hover { background:#222; }
     .charts-container { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:10px; margin-top:10px; }
     .chart-box { width:100%; height:250px; background:#111; border-radius:8px; }
-    .export-btns { margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; }
+    .export-btns { margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
     .export-btns button { background:#333; color:white; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; }
     .export-btns button:hover { background:#555; }
+    .data-table { margin-top:10px; max-height:300px; overflow-y:auto; background:#111; border-radius:8px; }
+    .data-table table { width:100%; border-collapse:collapse; }
+    .data-table th, .data-table td { padding:6px 10px; border-bottom:1px solid #333; text-align:center; font-size:0.85em; }
+    .data-table th { background:#222; position:sticky; top:0; }
+    .toggle-table-btn { background:#555; }
   </style>
 </head>
 <body>
   <a href="index.html" class="back-btn">← 返回</a>
-  <h2>保存的历史记录</h2>
+  <h2>历史记录</h2>
   <div id="list"></div>
   <div id="detail" style="display:none;">
     <h3 id="detailTitle"></h3>
     <div class="charts-container" id="chartsArea"></div>
     <div class="export-btns">
-      <button onclick="exportCurrent('png')">导出图表图片(八合一)</button>
+      <button onclick="exportCurrent('png')">导出图片(八合一)</button>
       <button onclick="exportCurrent('json')">导出 JSON</button>
       <button onclick="exportCurrent('xlsx')">导出 Excel</button>
       <button onclick="exportCurrent('txt')">导出 TXT</button>
+      <button onclick="toggleDataTable()" class="toggle-table-btn" id="toggleTableBtn">显示数据表格</button>
     </div>
+    <div class="data-table" id="dataTableArea" style="display:none;"></div>
   </div>
 
   <script>
@@ -40,6 +47,7 @@
     const serverPort = localStorage.getItem('serverPort') || '3000';
     const baseURL = `http://${serverIP}:${serverPort}`;
     let currentRecord = null;
+    let tableVisible = false;
 
     async function loadList() {
       try {
@@ -48,7 +56,7 @@
         const listDiv = document.getElementById('list');
         if (list.length === 0) { listDiv.innerHTML = '<p>暂无历史记录</p>'; return; }
         listDiv.innerHTML = list.map(r => 
-          `<div class="record-item" onclick="showDetail(${r.id})">📅 ${r.timestamp} （记录 #${r.id}）</div>`
+          `<div class="record-item" onclick="showDetail(${r.id})">${r.timestamp} （记录 #${r.id}）</div>`
         ).join('');
       } catch (e) {
         document.getElementById('list').innerHTML = '<p style="color:red;">加载失败</p>';
@@ -84,7 +92,7 @@
             title:{text:title, left:'center', textStyle:{color:'#eee', fontSize:12}},
             grid, xAxis:{...xA, min:xMin, max:xMax}, yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:yMin, max:yMax},
             dataZoom: dataZoomConfig,
-            series:[{name:title, type:'line', data:data, lineStyle:{width:1.5, color:color}, symbol:'none', smooth:true}]
+            series:[{name:title, type:'line', data:data, lineStyle:{width:1.5, color:color}, symbol:'none'}]
           });
           return chart;
         }
@@ -92,21 +100,74 @@
         const pass1 = currentRecord.pass1Data;
         const pass2 = currentRecord.pass2Data;
 
-        // 正向四张
         drawChart('chart1', '正向 X轴磁通量', pass1.p1X || [], '#ff6b6b', -900, -800, 0, 140);
         drawChart('chart2', '正向 Y轴磁通量', pass1.p1Y || [], '#51cf66', 0, 4000, 0, 140);
         drawChart('chart3', '正向 Z轴磁通量', pass1.p1Z || [], '#339af0', 0, 40000, 0, 140);
         drawChart('chart4', '正向 总磁通量', pass1.p1Mag || [], '#f06595', 35100, 35300, 0, 140);
-        // 反向四张
         drawChart('chart5', '反向 X轴磁通量', pass2.p2X || [], '#ff6b6b', 0, 150, 0, 150);
         drawChart('chart6', '反向 Y轴磁通量', pass2.p2Y || [], '#51cf66', 0, 2000, 0, 150);
         drawChart('chart7', '反向 Z轴磁通量', pass2.p2Z || [], '#339af0', 0, 600, 0, 150);
         drawChart('chart8', '反向 总磁通量', pass2.p2Mag || [], '#f06595', 2100, 2200, 0, 150);
 
+        // 重置表格状态
+        document.getElementById('dataTableArea').style.display = 'none';
+        document.getElementById('toggleTableBtn').textContent = '显示数据表格';
+        tableVisible = false;
+
         document.getElementById('detail').scrollIntoView({ behavior: 'smooth' });
       } catch (e) {
         alert('加载详情失败');
       }
+    }
+
+    function toggleDataTable() {
+      if (!currentRecord) return;
+      const area = document.getElementById('dataTableArea');
+      const btn = document.getElementById('toggleTableBtn');
+      if (tableVisible) {
+        area.style.display = 'none';
+        btn.textContent = '显示数据表格';
+        tableVisible = false;
+      } else {
+        area.innerHTML = generateTableHTML(currentRecord);
+        area.style.display = 'block';
+        btn.textContent = '隐藏数据表格';
+        tableVisible = true;
+      }
+    }
+
+    function generateTableHTML(rec) {
+      let html = '<table><thead><tr><th>距离(cm)</th><th>X</th><th>Y</th><th>Z</th><th>总磁通量</th><th>方向</th></tr></thead><tbody>';
+      const pass1Z = rec.pass1Data.p1Z || [];
+      const pass1X = rec.pass1Data.p1X || [];
+      const pass1Y = rec.pass1Data.p1Y || [];
+      const pass1Mag = rec.pass1Data.p1Mag || [];
+      for (let i = 0; i < pass1Z.length; i++) {
+        html += `<tr>
+          <td>${pass1Z[i][0]}</td>
+          <td>${pass1X[i]?.[1]?.toFixed(1) || '-'}</td>
+          <td>${pass1Y[i]?.[1]?.toFixed(1) || '-'}</td>
+          <td>${pass1Z[i][1]?.toFixed(1) || '-'}</td>
+          <td>${pass1Mag[i]?.[1]?.toFixed(1) || '-'}</td>
+          <td>正向</td>
+        </tr>`;
+      }
+      const pass2Z = rec.pass2Data.p2Z || [];
+      const pass2X = rec.pass2Data.p2X || [];
+      const pass2Y = rec.pass2Data.p2Y || [];
+      const pass2Mag = rec.pass2Data.p2Mag || [];
+      for (let i = 0; i < pass2Z.length; i++) {
+        html += `<tr>
+          <td>${pass2Z[i][0]}</td>
+          <td>${pass2X[i]?.[1]?.toFixed(1) || '-'}</td>
+          <td>${pass2Y[i]?.[1]?.toFixed(1) || '-'}</td>
+          <td>${pass2Z[i][1]?.toFixed(1) || '-'}</td>
+          <td>${pass2Mag[i]?.[1]?.toFixed(1) || '-'}</td>
+          <td>反向</td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
+      return html;
     }
 
     function exportCurrent(format) {
@@ -166,14 +227,13 @@
 
     function exportToExcel(rec) {
       const wb = XLSX.utils.book_new();
-      // 正向
       const p1Data = [['距离(cm)','X','Y','Z','总磁通量']];
       rec.pass1Data.p1Z.forEach((_, i) => {
         p1Data.push([rec.pass1Data.p1Z[i][0], rec.pass1Data.p1X[i][1], rec.pass1Data.p1Y[i][1], rec.pass1Data.p1Z[i][1], rec.pass1Data.p1Mag[i][1]]);
       });
       const ws1 = XLSX.utils.aoa_to_sheet(p1Data);
       XLSX.utils.book_append_sheet(wb, ws1, '正向');
-      // 反向
+
       const p2Data = [['距离(cm)','X','Y','Z','总磁通量']];
       rec.pass2Data.p2Z.forEach((_, i) => {
         p2Data.push([rec.pass2Data.p2Z[i][0], rec.pass2Data.p2X[i][1], rec.pass2Data.p2Y[i][1], rec.pass2Data.p2Z[i][1], rec.pass2Data.p2Mag[i][1]]);
