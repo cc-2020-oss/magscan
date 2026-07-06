@@ -34,12 +34,10 @@
       </span>
     </div>
     <div class="chart-grid">
-      <!-- 正向四张图 -->
       <div id="chart1" class="chart-box"></div>
       <div id="chart2" class="chart-box"></div>
       <div id="chart3" class="chart-box"></div>
       <div id="chart4" class="chart-box"></div>
-      <!-- 反向四张图 -->
       <div id="chart5" class="chart-box"></div>
       <div id="chart6" class="chart-box"></div>
       <div id="chart7" class="chart-box"></div>
@@ -61,7 +59,7 @@
 
   <!-- 内嵌 Socket.IO 客户端（请替换为从服务器复制的完整代码） -->
   <script>
-    /*!
+   /*!
  * Socket.IO v4.8.3
  * (c) 2014-2025 Guillermo Rauch
  * Released under the MIT License.
@@ -5019,6 +5017,7 @@
   </script>
 
   <script>
+    // ========== 公网优先 + 内网回退 ==========
     const PUBLIC_IP = "47.96.190.248";
     const PUBLIC_PORT = "3000";
 
@@ -5031,8 +5030,8 @@
     let isOfflinePlaying = false;
 
     let bufferPoints = [];
-    const UPDATE_INTERVAL = 150;
-    const MAX_POINTS = 2000;
+    const UPDATE_INTERVAL = 200;    // 更新间隔 200ms（每秒5次），降低渲染压力
+    const MAX_POINTS = 800;         // 最多保留 800 个点，减少内存占用
 
     let lastPassForClear = 0;
     let lastAngleForClear = 0;
@@ -5060,7 +5059,7 @@
       modeIndicator.style.color = '#f0ad4e';
 
       const url = `http://${ip}:${port}`;
-      console.log('自动连接:', url);
+      console.log('尝试连接:', url);
 
       if (typeof io === 'undefined') {
         fallbackToOffline();
@@ -5081,11 +5080,10 @@
           isOfflinePlaying = false;
           modeIndicator.textContent = '实时';
           modeIndicator.style.color = '#51cf66';
+          console.log('✅ 连接成功:', ip);
         });
 
-        socket.on('connect_error', () => {
-          fallbackToOffline();
-        });
+        socket.on('connect_error', () => {});
 
         socket.on('disconnect', () => {
           fallbackToOffline();
@@ -5107,9 +5105,7 @@
           }
         });
 
-      } catch (e) {
-        fallbackToOffline();
-      }
+      } catch (e) {}
     }
 
     function fallbackToOffline() {
@@ -5244,7 +5240,10 @@
       modeIndicator.style.color = '#f0ad4e';
       connectToServer(PUBLIC_IP, PUBLIC_PORT);
       setTimeout(() => {
-        if (!useServer) tryAppMode();
+        if (!useServer) {
+          console.log('公网连接失败，开始内网扫描...');
+          tryAppMode();
+        }
       }, 5000);
     }
 
@@ -5264,129 +5263,108 @@
       window.location.href = 'history.html';
     });
 
-    // ========== ECharts 初始化（八张图） ==========
+    // ========== ECharts 初始化（八张图，减负版） ==========
     function initCharts() {
       if (typeof echarts === 'undefined') { setTimeout(initCharts, 500); return; }
-      const TH = 30.0;
       
-      // 八个图表实例
       const charts = [];
       for (let i = 1; i <= 8; i++) {
         charts[i] = echarts.init(document.getElementById('chart' + i));
       }
 
-      // 正向数据数组（Pass1）: X, Y, Z, Mag
       let p1X=[], p1Y=[], p1Z=[], p1Mag=[];
-      // 反向数据数组（Pass2）: X, Y, Z, Mag
       let p2X=[], p2Y=[], p2Z=[], p2Mag=[];
 
       const grid = { top:40, bottom:60, left:55, right:10 };
       const xAxisCommon = { type:'value', name:'距离 (cm)', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'} };
 
-      // ===== 正向图表配置 =====
-      // 正向 X 轴磁通量（chart1）
+      // 所有曲线去掉 smooth，用折线直接渲染，大幅降低 CPU 占用
       charts[1].setOption({
         title:{text:'正向 X轴磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
         grid, xAxis:{...xAxisCommon, min:0, max:140},
         yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:-900, max:-800},
         dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
-        series:[{name:'X', type:'line', data:[], lineStyle:{width:1.5, color:'#ff6b6b'}, symbol:'none', smooth:true}]
+        series:[{name:'X', type:'line', data:[], lineStyle:{width:1.5, color:'#ff6b6b'}, symbol:'none'}]
       });
 
-      // 正向 Y 轴磁通量（chart2）
       charts[2].setOption({
         title:{text:'正向 Y轴磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
         grid, xAxis:{...xAxisCommon, min:0, max:140},
         yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:0, max:4000},
         dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
-        series:[{name:'Y', type:'line', data:[], lineStyle:{width:1.5, color:'#51cf66'}, symbol:'none', smooth:true}]
+        series:[{name:'Y', type:'line', data:[], lineStyle:{width:1.5, color:'#51cf66'}, symbol:'none'}]
       });
 
-      // 正向 Z 轴磁通量（chart3）
       charts[3].setOption({
         title:{text:'正向 Z轴磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
         grid, xAxis:{...xAxisCommon, min:0, max:140},
         yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:0, max:40000},
         dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
-        series:[{name:'Z', type:'line', data:[], lineStyle:{width:1.5, color:'#339af0'}, symbol:'none', smooth:true}]
+        series:[{name:'Z', type:'line', data:[], lineStyle:{width:1.5, color:'#339af0'}, symbol:'none'}]
       });
 
-      // 正向 总磁通量（chart4）
       charts[4].setOption({
         title:{text:'正向 总磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
         grid, xAxis:{...xAxisCommon, min:0, max:140},
         yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:35100, max:35300},
         dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
-        series:[{name:'Mag', type:'line', data:[], lineStyle:{width:1.5, color:'#f06595'}, symbol:'none', smooth:true}]
+        series:[{name:'Mag', type:'line', data:[], lineStyle:{width:1.5, color:'#f06595'}, symbol:'none'}]
       });
 
-      // ===== 反向图表配置 =====
-      // 反向 X 轴磁通量（chart5）
       charts[5].setOption({
         title:{text:'反向 X轴磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
         grid, xAxis:{...xAxisCommon, min:0, max:150},
         yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:0, max:150},
         dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
-        series:[{name:'X', type:'line', data:[], lineStyle:{width:1.5, color:'#ff6b6b'}, symbol:'none', smooth:true}]
+        series:[{name:'X', type:'line', data:[], lineStyle:{width:1.5, color:'#ff6b6b'}, symbol:'none'}]
       });
 
-      // 反向 Y 轴磁通量（chart6）
       charts[6].setOption({
         title:{text:'反向 Y轴磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
         grid, xAxis:{...xAxisCommon, min:0, max:150},
         yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:0, max:2000},
         dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
-        series:[{name:'Y', type:'line', data:[], lineStyle:{width:1.5, color:'#51cf66'}, symbol:'none', smooth:true}]
+        series:[{name:'Y', type:'line', data:[], lineStyle:{width:1.5, color:'#51cf66'}, symbol:'none'}]
       });
 
-      // 反向 Z 轴磁通量（chart7）
       charts[7].setOption({
         title:{text:'反向 Z轴磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
         grid, xAxis:{...xAxisCommon, min:0, max:150},
         yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:0, max:600},
         dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
-        series:[{name:'Z', type:'line', data:[], lineStyle:{width:1.5, color:'#339af0'}, symbol:'none', smooth:true}]
+        series:[{name:'Z', type:'line', data:[], lineStyle:{width:1.5, color:'#339af0'}, symbol:'none'}]
       });
 
-      // 反向 总磁通量（chart8）
       charts[8].setOption({
         title:{text:'反向 总磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
         grid, xAxis:{...xAxisCommon, min:0, max:150},
         yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:2100, max:2200},
         dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
-        series:[{name:'Mag', type:'line', data:[], lineStyle:{width:1.5, color:'#f06595'}, symbol:'none', smooth:true}]
+        series:[{name:'Mag', type:'line', data:[], lineStyle:{width:1.5, color:'#f06595'}, symbol:'none'}]
       });
 
-      // ===== 批量处理：添加数据点 + 自动清除 =====
       function processBuffer() {
         if (bufferPoints.length === 0) return;
         const points = bufferPoints.splice(0);
         points.forEach(pt => {
-          const xVal = pt.position || pt.angle;  // 横轴：距离
-          
+          const xVal = pt.position || pt.angle;
           if (pt.pass === 1) {
-            // 正向
             p1X.push([xVal, pt.x]); p1Y.push([xVal, pt.y]); p1Z.push([xVal, pt.z]); p1Mag.push([xVal, pt.mag]);
             while (p1X.length > MAX_POINTS) { p1X.shift(); p1Y.shift(); p1Z.shift(); p1Mag.shift(); }
           } else {
-            // 反向
             p2X.push([xVal, pt.x]); p2Y.push([xVal, pt.y]); p2Z.push([xVal, pt.z]); p2Mag.push([xVal, pt.mag]);
             while (p2X.length > MAX_POINTS) { p2X.shift(); p2Y.shift(); p2Z.shift(); p2Mag.shift(); }
           }
 
-          // 自动清除检测
-          if (pt.pass === 2 && (pt.angle || pt.position) <= 5 && lastPassForClear === 2 && lastAngleForClear > (pt.angle || pt.position)) {
+          if (pt.pass === 2 && xVal <= 5 && lastPassForClear === 2 && lastAngleForClear > xVal) {
             p1X=[];p1Y=[];p1Z=[];p1Mag=[];p2X=[];p2Y=[];p2Z=[];p2Mag=[];
-            for (let i = 1; i <= 8; i++) {
-              charts[i].setOption({ series: [{data:[]}] });
-            }
+            for (let i = 1; i <= 8; i++) charts[i].setOption({ series: [{data:[]}] });
             progressInfo.textContent = '已清除';
           }
           lastPassForClear = pt.pass;
-          lastAngleForClear = pt.position || pt.angle;
+          lastAngleForClear = xVal;
         });
 
-        // 更新所有图表
         charts[1].setOption({ series: [{data:p1X}] });
         charts[2].setOption({ series: [{data:p1Y}] });
         charts[3].setOption({ series: [{data:p1Z}] });
@@ -5401,9 +5379,7 @@
 
       addDataPoint = (pt) => { bufferPoints.push(pt); };
 
-      // 暴露数据供 AI 分析和保存使用
-      window.p1Z = p1Z;
-      window.p2Z = p2Z;
+      window.p1Z = p1Z; window.p2Z = p2Z;
       window.p1X = p1X; window.p1Y = p1Y; window.p1Mag = p1Mag;
       window.p2X = p2X; window.p2Y = p2Y; window.p2Mag = p2Mag;
 
