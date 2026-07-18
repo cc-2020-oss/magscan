@@ -15,7 +15,8 @@
     "@capacitor/cli": "^8.4.0",
     "@capacitor/core": "^8.4.0",
     "axios": "^1.18.0",
-    "express": "^5.2.1",
-    "socket.io": "^4.8.3"
+    "express": "^4.21.0",
+    "socket.io": "^4.8.3",
+    "cors": "^2.8.5"
   }
 }

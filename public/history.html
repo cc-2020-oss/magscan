@@ -4,52 +4,513 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>历史记录</title>
-  <link rel="stylesheet" href="/css/main.css">
-  <link rel="stylesheet" href="/css/noscript.css">
   <script src="/echarts.min.js"></script>
-  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.20.1/dist/xlsx.full.min.js"
+          onerror="this.onerror=null;this.src='https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js';"></script>
   <style>
-    body { background:#000; color:#eee; font-family:"Microsoft YaHei",sans-serif; padding:10px; }
-    .back-btn { display:inline-block; margin-bottom:10px; padding:8px 15px; background:#e94560; color:white; border-radius:6px; text-decoration:none; }
-    .record-item { background:#111; padding:10px; margin:10px 0; border-radius:8px; cursor:pointer; }
-    .record-item:hover { background:#222; }
-    .charts-container { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:10px; margin-top:10px; }
-    .chart-box { width:100%; height:250px; background:#111; border-radius:8px; }
-    .export-btns { margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-    .export-btns button { background:#333; color:white; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; }
-    .export-btns button:hover { background:#555; }
-    .data-table { margin-top:10px; max-height:300px; overflow-y:auto; background:#111; border-radius:8px; }
-    .data-table table { width:100%; border-collapse:collapse; }
-    .data-table th, .data-table td { padding:6px 10px; border-bottom:1px solid #333; text-align:center; font-size:0.85em; }
-    .data-table th { background:#222; position:sticky; top:0; }
-    .toggle-table-btn { background:#555; }
+    * { margin:0; padding:0; box-sizing:border-box; }
+
+    @keyframes flicker {
+      0%,100% { opacity:0.04; }
+      50% { opacity:0.07; }
+    }
+    @keyframes fluxPulse {
+      0%,100% { opacity:0.12; }
+      50% { opacity:0.25; }
+    }
+
+    body {
+      background:#0a0a0a;
+      color:#b0b0b0;
+      font-family:"Microsoft YaHei","SimHei","PingFang SC",sans-serif;
+      padding:20px;
+      position:relative;
+      min-height:100vh;
+    }
+
+    /* Magnetic flux field phantom background */
+    body::before {
+      content:'';
+      position:fixed;
+      top:0;left:0;width:100%;height:100%;
+      pointer-events:none;
+      z-index:0;
+      opacity:0.11;
+      background:
+        /* Center core highlights (more opaque to show pole center) */
+        radial-gradient(circle 6% at 20% 50%, rgba(58,123,213,0.9) 0%, rgba(58,123,213,0.4) 50%, rgba(58,123,213,0) 100%),
+        radial-gradient(circle 6% at 80% 50%, rgba(58,123,213,0.9) 0%, rgba(58,123,213,0.4) 50%, rgba(58,123,213,0) 100%),
+        /* dipole field: N-pole arcs curving outward */
+        radial-gradient(ellipse 120% 200% at 20% 50%, transparent 20%, rgba(58,123,213,0.6) 20.5%, transparent 21%),
+        radial-gradient(ellipse 120% 180% at 20% 50%, transparent 32%, rgba(58,123,213,0.4) 32.5%, transparent 33%),
+        radial-gradient(ellipse 120% 160% at 20% 50%, transparent 44%, rgba(58,123,213,0.3) 44.5%, transparent 45%),
+        /* dipole field: S-pole arcs curving outward */
+        radial-gradient(ellipse 120% 200% at 80% 50%, transparent 20%, rgba(58,123,213,0.6) 20.5%, transparent 21%),
+        radial-gradient(ellipse 120% 180% at 80% 50%, transparent 32%, rgba(58,123,213,0.4) 32.5%, transparent 33%),
+        radial-gradient(ellipse 120% 160% at 80% 50%, transparent 44%, rgba(58,123,213,0.3) 44.5%, transparent 45%),
+        /* connecting field lines between poles */
+        radial-gradient(ellipse 250% 120% at 50% 50%, transparent 50%, rgba(58,123,213,0.25) 50.5%, transparent 51%),
+        radial-gradient(ellipse 220% 100% at 50% 50%, transparent 62%, rgba(58,123,213,0.18) 62.5%, transparent 63%),
+        /* outer flux halo */
+        radial-gradient(ellipse 180% 140% at 50% 50%, transparent 68%, rgba(58,123,213,0.12) 68.5%, transparent 69%);
+      animation:fluxPulse 8s ease-in-out infinite;
+    }
+
+    body::after {
+      content:'';
+      position:fixed;
+      top:0;left:0;width:100%;height:100%;
+      pointer-events:none;
+      z-index:9998;
+      opacity:0.04;
+      background:
+        repeating-radial-gradient(circle at 17% 32%,#fff 0,#fff 0.5px,transparent 1px,transparent 3px),
+        repeating-radial-gradient(circle at 83% 67%,#fff 0,#fff 0.5px,transparent 1px,transparent 4px),
+        repeating-radial-gradient(circle at 42% 18%,#fff 0,#fff 0.5px,transparent 1px,transparent 5px),
+        repeating-radial-gradient(circle at 61% 81%,#fff 0,#fff 0.5px,transparent 1px,transparent 3px);
+      animation:flicker 8s infinite;
+    }
+
+    h2 {
+      color:#5a9fd4;
+      letter-spacing:4px;
+      font-weight:900;
+      font-size:1.1em;
+      margin-bottom:16px;
+      text-shadow:0 0 10px rgba(58,123,213,0.3);
+      position:relative;
+      z-index:5;
+    }
+
+    .back-btn {
+      display:inline-block;
+      margin-bottom:16px;
+      padding:7px 18px;
+      background:#11171c;
+      color:#8aaccc;
+      text-decoration:none;
+      border:1px solid #2a3a4a;
+      letter-spacing:2px;
+      font-size:0.85em;
+      font-weight:bold;
+      transition:all 0.25s;
+      position:relative;
+      z-index:5;
+      clip-path:polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+    }
+    .back-btn::after {
+      content:'';
+      position:absolute;
+      bottom:0;left:10%;width:80%;height:1px;
+      background:transparent;
+      transition:background 0.25s;
+    }
+    .back-btn:hover {
+      background:#1a2630;
+      border-color:#3a7bd5;
+      color:#a0c8f0;
+      box-shadow:0 0 14px rgba(58,123,213,0.2);
+    }
+    .back-btn:hover::after { background:#3a7bd5; }
+
+    .record-item {
+      background:#0d1114;
+      padding:14px;
+      margin:8px 0;
+      cursor:pointer;
+      border:1px solid #1a2a3a;
+      border-left:2px solid #2a3a4a;
+      transition:all 0.2s;
+      position:relative;
+      z-index:5;
+    }
+    .record-item:hover {
+      background:#111a22;
+      border-color:#3a7bd5;
+      border-left-color:#3a7bd5;
+    }
+
+    .charts-container {
+      display:grid;
+      grid-template-columns:1fr 1fr 1fr;
+      grid-template-rows:1fr 1fr;
+      gap:18px;
+      margin-top:16px;
+      position:relative;
+      z-index:5;
+    }
+    .chart-box {
+      width:100%;
+      height:250px;
+      background:#0d1114;
+      border:1px solid #1a2a3a;
+      position:relative;
+      overflow:hidden;
+      transition:border-color 0.3s;
+    }
+    .chart-box:hover { border-color:#2a4a6a; }
+    .chart-box::before {
+      content:'';
+      position:absolute;
+      top:6px;left:6px;
+      width:6px;height:6px;
+      background:#2a5a8a;
+      z-index:10;
+      pointer-events:none;
+      box-shadow:0 0 4px rgba(58,123,213,0.4);
+    }
+    .chart-box::after {
+      content:'';
+      position:absolute;
+      top:6px;right:6px;
+      width:6px;height:6px;
+      background:#2a5a8a;
+      z-index:10;
+      pointer-events:none;
+      box-shadow:0 0 4px rgba(58,123,213,0.4);
+    }
+
+    .export-btns {
+      display:flex;
+      gap:12px;
+      flex-wrap:wrap;
+      align-items:center;
+      position:relative;
+      z-index:5;
+    }
+    .export-btns button {
+      background:#11171c;
+      color:#8aaccc;
+      border:1px solid #2a3a4a;
+      padding:6px 16px;
+      cursor:pointer;
+      font-size:0.8em;
+      font-weight:bold;
+      letter-spacing:1px;
+      transition:all 0.25s;
+      position:relative;
+      clip-path:polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+    }
+    .export-btns button::after {
+      content:'';
+      position:absolute;
+      bottom:0;left:10%;width:80%;height:1px;
+      background:transparent;
+      transition:background 0.25s;
+    }
+    .export-btns button:hover {
+      background:#1a2630;
+      border-color:#3a7bd5;
+      color:#a0c8f0;
+      box-shadow:0 0 12px rgba(58,123,213,0.2);
+    }
+    .export-btns button:hover::after { background:#3a7bd5; }
+    .export-btns button.ai-analyze-btn {
+      background:#0d1a2a;
+      border-color:#2a4a3a;
+      color:#51cf66;
+    }
+    .export-btns button.ai-analyze-btn:hover {
+      background:#0d2010;
+      border-color:#51cf66;
+      box-shadow:0 0 12px rgba(81,207,102,0.2);
+    }
+    .export-btns button.ai-analyze-btn:hover::after { background:#51cf66; }
+    .export-btns button.ai-analyze-btn:disabled {
+      opacity:0.5;
+      cursor:not-allowed;
+    }
+
+    .ai-result-box {
+      background:#0d1418;
+      border:1px solid #1e2e3e;
+      border-radius:4px;
+      padding:16px;
+      margin-top:16px;
+      color:#8899aa;
+      font-size:0.85em;
+      line-height:1.8;
+      white-space:pre-wrap;
+      max-height:400px;
+      overflow-y:auto;
+      display:none;
+    }
+    .ai-result-box h4 {
+      color:#51cf66;
+      margin:0 0 10px 0;
+      font-size:0.95em;
+      letter-spacing:1px;
+    }
+
+    #clearHistoryBtn:hover {
+      background:#1a1a1a;
+      border-color:#c0392b;
+      color:#e74c3c;
+      box-shadow:0 0 12px rgba(192,57,43,0.2);
+    }
+
+    .data-table {
+      margin-top:16px;
+      max-height:350px;
+      overflow-y:auto;
+      background:#0d1114;
+      border:1px solid #1a2a3a;
+      position:relative;
+      z-index:5;
+    }
+    .data-table table {
+      width:100%;
+      border-collapse:collapse;
+    }
+    .data-table th, .data-table td {
+      padding:4px 6px;
+      border-bottom:1px solid #111a22;
+      text-align:center;
+      font-size:0.8em;
+      white-space:nowrap;
+    }
+    .data-table th {
+      background:#11171c;
+      position:sticky;
+      top:0;
+      color:#7799aa;
+      letter-spacing:1px;
+      font-weight:bold;
+      border-bottom:1px solid #3a7bd5;
+    }
+    .data-table td { color:#557799; }
+    .data-table tr:hover td { background:#111a22; }
+
+    #detailTitle {
+      color:#5a9fd4;
+      letter-spacing:2px;
+      font-weight:bold;
+      position:relative;
+      z-index:5;
+    }
+
+    /* ── 确认弹窗 ── */
+    .confirm-overlay {
+      display:none;
+      position:fixed;
+      top:0;left:0;
+      width:100%;height:100%;
+      background:rgba(0,0,0,0.78);
+      z-index:10000;
+      justify-content:center;
+      align-items:center;
+      backdrop-filter:blur(2px);
+    }
+    .confirm-overlay.show { display:flex; }
+    .confirm-box {
+      background:#11171c;
+      padding:28px;
+      width:90%;
+      max-width:420px;
+      border:1px solid #2a3a4a;
+      box-shadow:0 0 40px rgba(0,0,0,0.8), 0 0 20px rgba(192,57,43,0.08);
+      position:relative;
+      text-align:center;
+    }
+    .confirm-box::before {
+      content:'';
+      position:absolute;
+      top:0;left:0;
+      width:100%;height:2px;
+      background:linear-gradient(90deg, transparent, #c0392b, #e74c3c, #c0392b, transparent);
+    }
+    .confirm-box h3 {
+      color:#c0392b;
+      margin-bottom:12px;
+      letter-spacing:2px;
+      font-size:1em;
+    }
+    .confirm-box p {
+      color:#8899aa;
+      font-size:0.85em;
+      line-height:1.6;
+      margin-bottom:22px;
+    }
+    .confirm-btns {
+      display:flex;
+      gap:16px;
+      justify-content:center;
+    }
+    .confirm-btns button {
+      padding:8px 28px;
+      border:1px solid #2a3a4a;
+      cursor:pointer;
+      font-size:0.85em;
+      font-weight:bold;
+      letter-spacing:2px;
+      transition:all 0.25s;
+      clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);
+    }
+    .confirm-btns .btn-cancel {
+      background:#11171c;
+      color:#8aaccc;
+    }
+    .confirm-btns .btn-cancel:hover {
+      background:#1a2630;
+      border-color:#3a7bd5;
+      color:#a0c8f0;
+    }
+    .confirm-btns .btn-danger {
+      background:#1a0a0a;
+      color:#e74c3c;
+      border-color:#3a1a1a;
+    }
+    .confirm-btns .btn-danger:hover {
+      background:#2a0a0a;
+      border-color:#c0392b;
+      box-shadow:0 0 14px rgba(192,57,43,0.3);
+    }
+
+    /* ── 回放控制条 ── */
+    .playback-bar {
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:8px 16px;
+      margin-bottom:14px;
+      background:#0d1114;
+      border:1px solid #1a2a3a;
+      position:relative;
+      z-index:5;
+      flex-wrap:wrap;
+    }
+    .playback-bar button {
+      background:#11171c;
+      color:#8aaccc;
+      border:1px solid #2a3a4a;
+      padding:5px 14px;
+      cursor:pointer;
+      font-size:0.78em;
+      font-weight:bold;
+      letter-spacing:1px;
+      transition:all 0.25s;
+      clip-path:polygon(5px 0,100% 0,calc(100% - 5px) 100%,0 100%);
+    }
+    .playback-bar button:hover {
+      background:#1a2630;
+      border-color:#3a7bd5;
+      color:#a0c8f0;
+      box-shadow:0 0 10px rgba(58,123,213,0.2);
+    }
+    .playback-bar button:disabled {
+      opacity:0.4;
+      cursor:not-allowed;
+      pointer-events:none;
+    }
+    .playback-bar button.active-btn {
+      background:#1a2a3a;
+      border-color:#3a7bd5;
+      color:#fff;
+      box-shadow:0 0 14px rgba(58,123,213,0.35);
+    }
+    .playback-bar input[type="range"] {
+      -webkit-appearance:none;
+      height:4px;
+      background:#1a2a3a;
+      outline:none;
+      cursor:pointer;
+      min-width:100px;
+    }
+    .playback-bar input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance:none;
+      width:14px;
+      height:14px;
+      background:#3a7bd5;
+      cursor:pointer;
+      border:none;
+    }
+    .playback-bar .progress-text {
+      color:#5a9fd4;
+      font-size:0.8em;
+      font-weight:bold;
+      min-width:80px;
+      letter-spacing:1px;
+    }
   </style>
 </head>
 <body>
   <a href="index.html" class="back-btn">← 返回</a>
   <h2>历史记录</h2>
+  <button id="clearHistoryBtn" style="position:fixed;top:20px;right:20px;z-index:100;background:#11171c;color:#c0392b;border:1px solid #3a1a1a;padding:6px 16px;cursor:pointer;font-size:0.8em;font-weight:bold;letter-spacing:1px;transition:all 0.25s;clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);">清除历史数据</button>
   <div id="list"></div>
   <div id="detail" style="display:none;">
-    <h3 id="detailTitle"></h3>
-    <div class="charts-container" id="chartsArea"></div>
-    <div class="export-btns">
-      <button onclick="exportCurrent('png')">导出图片</button>
-      <button onclick="exportCurrent('json')">导出 JSON</button>
-      <button onclick="exportCurrent('xlsx')">导出 Excel</button>
-      <button onclick="exportCurrent('txt')">导出 TXT</button>
-      <button onclick="toggleDataTable()" class="toggle-table-btn" id="toggleTableBtn">显示数据表格</button>
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
+      <h3 id="detailTitle" style="margin:0;"></h3>
+      <div class="export-btns">
+        <button onclick="exportCurrent('png')">导出图片</button>
+        <button onclick="exportCurrent('json')">导出 JSON</button>
+        <button onclick="exportCurrent('xlsx')">导出 Excel</button>
+        <button onclick="exportCurrent('txt')">导出 TXT</button>
+        <button class="ai-analyze-btn" id="histAiBtn" onclick="analyzeHistory()">AI 分析</button>
+      </div>
     </div>
-    <div class="data-table" id="dataTableArea" style="display:none;"></div>
+    <div class="playback-bar" id="playbackBar" style="display:none;">
+      <button id="histPlayBtn" onclick="startPlayback()">▶ 播放</button>
+      <button id="histPauseBtn" onclick="pausePlayback()" disabled>⏸ 暂停</button>
+      <button id="histStopBtn" onclick="stopPlayback()" disabled>⏹ 停止</button>
+      <span style="color:#557799;font-size:0.78em;margin-left:4px;">速度</span>
+      <input type="range" id="histSpeedSlider" min="0.5" max="10" step="0.5" value="1" oninput="onSpeedChange()">
+      <span id="histSpeedLabel" style="color:#557799;font-size:0.78em;min-width:32px;">1x</span>
+      <span class="progress-text" id="histProgress">0 / 0</span>
+    </div>
+    <div class="charts-container" id="chartsArea"></div>
+    <div class="ai-result-box" id="aiResultBox"><h4>AI 分析结果</h4><div id="aiResultContent"></div></div>
+    <div class="data-table" id="dataTableArea"></div>
+  </div>
+
+  <!-- 确认弹窗（必须在 script 之前） -->
+  <div class="confirm-overlay" id="confirmModal">
+    <div class="confirm-box">
+      <h3>⚠ 清除历史数据</h3>
+      <p>确认清除所有历史数据？<br>此操作不可恢复，所有已保存的扫描记录将被永久删除。</p>
+      <div class="confirm-btns">
+        <button class="btn-cancel" id="confirmCancel">取消</button>
+        <button class="btn-danger" id="confirmOk">确认清除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 通用 Toast 弹窗 -->
+  <div class="toast-overlay" id="toastOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.78);z-index:10001;justify-content:center;align-items:center;backdrop-filter:blur(2px);">
+    <div style="background:#11171c;padding:24px;width:90%;max-width:420px;border:1px solid #2a3a4a;box-shadow:0 0 40px rgba(0,0,0,0.8);position:relative;text-align:center;">
+      <div style="position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,#3a7bd5,#c0392b,#3a7bd5,transparent);"></div>
+      <h3 id="toastTitle" style="color:#c0392b;margin-bottom:12px;letter-spacing:2px;font-size:1em;"></h3>
+      <p id="toastMsg" style="color:#8899aa;font-size:0.85em;line-height:1.6;margin-bottom:22px;white-space:pre-wrap;"></p>
+      <button id="toastOk" style="padding:8px 28px;background:#11171c;color:#8aaccc;border:1px solid #2a3a4a;cursor:pointer;font-size:0.85em;font-weight:bold;letter-spacing:2px;transition:all 0.25s;clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);">确定</button>
+    </div>
   </div>
 
   <script>
-    const serverIP = localStorage.getItem('serverIP') || '47.96.190.248';
-    const serverPort = localStorage.getItem('serverPort') || '3000';
+    const urlParams = new URLSearchParams(window.location.search);
+    const serverIP = urlParams.get('ip') || localStorage.getItem('serverIP') || '47.96.190.248';
+    const serverPort = urlParams.get('port') || localStorage.getItem('serverPort') || '3000';
     const baseURL = `http://${serverIP}:${serverPort}`;
     let currentRecord = null;
-    let tableVisible = false;
+    let histCharts = [];        // 6个图表实例
+    let histAllData = null;     // 完整数据引用
+    let playbackIndex = 0;
+    let playbackTimer = null;
+    let playbackSpeed = 1;
+    let isPlaying = false;
+    let histChartBaseSeries = [];
 
-    async function loadList() {
+    // 通用 Toast 弹窗（替代 alert）
+    function showToast(title, msg, icon) {
+      const overlay = document.getElementById('toastOverlay');
+      document.getElementById('toastTitle').textContent = (icon || '') + ' ' + title;
+      document.getElementById('toastTitle').style.color = title === '错误' ? '#c0392b' : '#8aaccc';
+      document.getElementById('toastMsg').textContent = msg;
+      overlay.style.display = 'flex';
+      document.getElementById('toastOk').onclick = () => overlay.style.display = 'none';
+    }
+
+    async function loadList(retryCount = 0) {
+      const maxRetries = 3;
       try {
         const res = await fetch(baseURL + '/history');
         const list = await res.json();
@@ -59,119 +520,241 @@
           `<div class="record-item" onclick="showDetail(${r.id})">${r.timestamp} （记录 #${r.id}）</div>`
         ).join('');
       } catch (e) {
-        document.getElementById('list').innerHTML = '<p style="color:red;">加载失败</p>';
+        if (retryCount < maxRetries) {
+          document.getElementById('list').innerHTML = `<p style="color:#8899aa;">加载失败，正在重试... (${retryCount + 1}/${maxRetries})</p>`;
+          setTimeout(() => loadList(retryCount + 1), 1000);
+        } else {
+          document.getElementById('list').innerHTML = '<p style="color:#c0392b;">加载失败: ' + e.message + '</p>';
+        }
       }
     }
 
     async function showDetail(id) {
       try {
+        stopPlayback();
         const res = await fetch(`${baseURL}/history/${id}`);
         currentRecord = await res.json();
         document.getElementById('detail').style.display = 'block';
         document.getElementById('detailTitle').textContent = `记录 #${id}  - ${currentRecord.timestamp}`;
 
+        // 销毁旧 ECharts 实例
+        histCharts.forEach(c => { try { if (c && !c.isDisposed()) c.dispose(); } catch (e) {} });
+        histCharts = [];
+
         const area = document.getElementById('chartsArea');
         area.innerHTML = `
-          <div id="chart1" class="chart-box"></div>
-          <div id="chart2" class="chart-box"></div>
-          <div id="chart3" class="chart-box"></div>
-          <div id="chart4" class="chart-box"></div>
-          <div id="chart5" class="chart-box"></div>
-          <div id="chart6" class="chart-box"></div>
-          <div id="chart7" class="chart-box"></div>
-          <div id="chart8" class="chart-box"></div>
+          <div id="histchart1" class="chart-box"></div>
+          <div id="histchart2" class="chart-box"></div>
+          <div id="histchart3" class="chart-box"></div>
+          <div id="histchart4" class="chart-box"></div>
+          <div id="histchart5" class="chart-box"></div>
+          <div id="histchart6" class="chart-box"></div>
         `;
 
-        const grid = { top:35, bottom:50, left:50, right:10 };
-        const xA = { type:'value', name:'距离 (cm)', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'} };
-        const dataZoomConfig = [ { type: 'inside', xAxisIndex: 0 }, { type: 'slider', xAxisIndex: 0, bottom: 5, height: 15 } ];
+        const grid = { top:38, bottom:55, left:60, right:14 };
+        const xA = { type:'value', name:'距离 (mm)', nameTextStyle:{color:'#557799', fontSize:11, fontWeight:'bold'}, axisLabel:{color:'#446688', fontSize:10}, axisLine:{lineStyle:{color:'#1a2a3a'}}, splitLine:{lineStyle:{color:'#111a22', type:'dashed'}} };
+        const dataZoomConfig = [ { type: 'inside', xAxisIndex: 0 }, { type: 'slider', xAxisIndex: 0, bottom: 5, height: 14, backgroundColor:'#0d1114', borderColor:'#1a2a3a', fillerColor:'rgba(58,123,213,0.12)', dataBackground:{lineStyle:{color:'#334455'}, areaStyle:{color:'#111a22'}}, selectedDataBackground:{lineStyle:{color:'#3a7bd5'}, areaStyle:{color:'#0d1a2a'}}, textStyle:{color:'#557799'}, handleStyle:{color:'#3a7bd5'} } ];
 
-        function drawChart(domId, title, data, color, yMin, yMax, xMin, xMax) {
-          const chart = echarts.init(document.getElementById(domId));
+        function drawChart(domId, title, yName, data, color) {
+          if (typeof echarts === 'undefined') { showToast('错误', '图表库加载失败，请刷新页面重试'); return null; }
+          const dom = document.getElementById(domId);
+          if (!dom) { showToast('错误', '图表容器未就绪'); return null; }
+          const chart = echarts.init(dom);
           chart.setOption({
-            title:{text:title, left:'center', textStyle:{color:'#eee', fontSize:12}},
-            grid, xAxis:{...xA, min:xMin, max:xMax}, yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:yMin, max:yMax},
+            backgroundColor:'#0d1114',
+            title:{text:title, left:'center', textStyle:{color:'#7799aa', fontSize:12, fontWeight:'bold', letterSpacing:2}},
+            grid, xAxis:{...xA}, yAxis:{type:'value', name:yName, nameTextStyle:{color:'#557799', fontSize:11, fontWeight:'bold'}, axisLabel:{color:'#446688', fontSize:10}, axisLine:{lineStyle:{color:'#1a2a3a'}}, splitLine:{lineStyle:{color:'#111a22', type:'dashed'}}},
             dataZoom: dataZoomConfig,
-            series:[{name:title, type:'line', data:data, lineStyle:{width:1.5, color:color}, symbol:'none'}]
+            series: [{name:title, type:'line', data:data || [], lineStyle:{width:2, color}, symbol:'none'}]
           });
           return chart;
         }
 
-        const pass1 = currentRecord.pass1Data;
-        const pass2 = currentRecord.pass2Data;
+        const d = currentRecord.data;
+        if (!d) { showToast('错误', '数据格式错误，无法加载'); return; }
 
-        drawChart('chart1', '正向 X轴磁通量', pass1.p1X || [], '#ff6b6b', -900, -800, 0, 140);
-        drawChart('chart2', '正向 Y轴磁通量', pass1.p1Y || [], '#51cf66', 0, 4000, 0, 140);
-        drawChart('chart3', '正向 Z轴磁通量', pass1.p1Z || [], '#339af0', 0, 40000, 0, 140);
-        drawChart('chart4', '正向 总磁通量', pass1.p1Mag || [], '#f06595', 35100, 35300, 0, 140);
-        drawChart('chart5', '反向 X轴磁通量', pass2.p2X || [], '#ff6b6b', 0, 150, 0, 150);
-        drawChart('chart6', '反向 Y轴磁通量', pass2.p2Y || [], '#51cf66', 0, 2000, 0, 150);
-        drawChart('chart7', '反向 Z轴磁通量', pass2.p2Z || [], '#339af0', 0, 600, 0, 150);
-        drawChart('chart8', '反向 总磁通量', pass2.p2Mag || [], '#f06595', 2100, 2200, 0, 150);
+        histAllData = d;
+        histCharts = [
+          drawChart('histchart1', '传感器1 X轴磁通量', 'X1 (uT)', d.X1, '#ff6b6b'),
+          drawChart('histchart2', '传感器2 X轴磁通量', 'X2 (uT)', d.X2, '#ffa94d'),
+          drawChart('histchart3', '传感器1 Y轴磁通量', 'Y1 (uT)', d.Y1, '#51cf66'),
+          drawChart('histchart4', '传感器2 Y轴磁通量', 'Y2 (uT)', d.Y2, '#a9e34b'),
+          drawChart('histchart5', '传感器1 Z轴磁通量', 'Z1 (uT)', d.Z1, '#339af0'),
+          drawChart('histchart6', '传感器2 Z轴磁通量', 'Z2 (uT)', d.Z2, '#9775fa')
+        ];
+        histChartBaseSeries = histCharts.map(c => c ? c.getOption().series[0] : null);
 
-        // 重置表格状态
-        document.getElementById('dataTableArea').style.display = 'none';
-        document.getElementById('toggleTableBtn').textContent = '显示数据表格';
-        tableVisible = false;
+        const z1 = d.Z1 || [];
+        playbackIndex = 0;
+        document.getElementById('histProgress').textContent = `0 / ${z1.length}`;
+        document.getElementById('playbackBar').style.display = 'flex';
+        document.getElementById('histPlayBtn').disabled = false;
+        document.getElementById('histPauseBtn').disabled = true;
+        document.getElementById('histStopBtn').disabled = true;
+
+        document.getElementById('dataTableArea').innerHTML = '';
+        initVirtualTable(currentRecord);
 
         document.getElementById('detail').scrollIntoView({ behavior: 'smooth' });
       } catch (e) {
-        alert('加载详情失败');
+        showToast('错误', '加载详情失败: ' + e.message);
       }
     }
 
-    function toggleDataTable() {
-      if (!currentRecord) return;
-      const area = document.getElementById('dataTableArea');
-      const btn = document.getElementById('toggleTableBtn');
-      if (tableVisible) {
-        area.style.display = 'none';
-        btn.textContent = '显示数据表格';
-        tableVisible = false;
-      } else {
-        area.innerHTML = generateTableHTML(currentRecord);
-        area.style.display = 'block';
-        btn.textContent = '隐藏数据表格';
-        tableVisible = true;
+    // ========== 虚拟滚动表格（避免大量 DOM 节点卡顿） ==========
+    const VTABLE_ROWS = 100;  // 每次渲染行数
+    let vtableData = null;
+    let vtableEnd = 0;
+
+    function vtableScrollHandler() {
+      const container = document.getElementById('dataTableArea');
+      if (container && container.scrollTop + container.clientHeight >= container.scrollHeight - 40) {
+        renderMoreRows();
       }
     }
 
-    function generateTableHTML(rec) {
-      let html = '<table><thead><tr><th>距离(cm)</th><th>X</th><th>Y</th><th>Z</th><th>总磁通量</th><th>方向</th></tr></thead><tbody>';
-      const pass1Z = rec.pass1Data.p1Z || [];
-      const pass1X = rec.pass1Data.p1X || [];
-      const pass1Y = rec.pass1Data.p1Y || [];
-      const pass1Mag = rec.pass1Data.p1Mag || [];
-      for (let i = 0; i < pass1Z.length; i++) {
+    function initVirtualTable(rec) {
+      const d = rec.data;
+      if (!d || !d.Z1 || d.Z1.length === 0) {
+        document.getElementById('dataTableArea').innerHTML = '<p>数据为空</p>';
+        return;
+      }
+      vtableData = d;
+      vtableEnd = 0;
+      const container = document.getElementById('dataTableArea');
+      container.innerHTML = '<table id="vtable"><thead><tr><th>距离d(mm)</th><th>X1</th><th>Y1</th><th>Z1</th><th>T1</th><th>Ang1</th><th>Mag1</th><th>X2</th><th>Y2</th><th>Z2</th><th>T2</th><th>Ang2</th><th>Mag2</th></tr></thead><tbody id="vtableBody"></tbody></table><div id="vtableHint" style="text-align:center;padding:10px;color:#557799;font-size:0.8em;">向下滚动加载更多...</div>';
+
+      renderMoreRows();
+
+      container.removeEventListener('scroll', vtableScrollHandler);
+      container.addEventListener('scroll', vtableScrollHandler);
+    }
+
+    function renderMoreRows() {
+      if (!vtableData) return;
+      const z1 = vtableData.Z1;
+      const total = z1.length;
+      if (vtableEnd >= total) {
+        const hint = document.getElementById('vtableHint');
+        if (hint) hint.textContent = `已显示全部 ${total} 条数据`;
+        return;
+      }
+
+      const nextEnd = Math.min(vtableEnd + VTABLE_ROWS, total);
+      let html = '';
+      for (let i = vtableEnd; i < nextEnd; i++) {
+        const row = z1[i];
+        if (!row || !Array.isArray(row)) continue;
         html += `<tr>
-          <td>${pass1Z[i][0]}</td>
-          <td>${pass1X[i]?.[1]?.toFixed(1) || '-'}</td>
-          <td>${pass1Y[i]?.[1]?.toFixed(1) || '-'}</td>
-          <td>${pass1Z[i][1]?.toFixed(1) || '-'}</td>
-          <td>${pass1Mag[i]?.[1]?.toFixed(1) || '-'}</td>
-          <td>正向</td>
+          <td>${(row[0] != null ? row[0].toFixed(2) : '-')}</td>
+          <td>${(vtableData.X1?.[i]?.[1]?.toFixed(1) || '-')}</td>
+          <td>${(vtableData.Y1?.[i]?.[1]?.toFixed(1) || '-')}</td>
+          <td>${(row[1] != null ? row[1].toFixed(1) : '-')}</td>
+          <td>${(vtableData.T1?.[i]?.[1]?.toFixed(1) || '-')}</td>
+          <td>${(vtableData.Ang1?.[i]?.[1]?.toFixed(1) || '-')}</td>
+          <td>${(vtableData.Mag1?.[i]?.[1]?.toFixed(1) || '-')}</td>
+          <td>${(vtableData.X2?.[i]?.[1]?.toFixed(1) || '-')}</td>
+          <td>${(vtableData.Y2?.[i]?.[1]?.toFixed(1) || '-')}</td>
+          <td>${(vtableData.Z2?.[i]?.[1]?.toFixed(1) || '-')}</td>
+          <td>${(vtableData.T2?.[i]?.[1]?.toFixed(1) || '-')}</td>
+          <td>${(vtableData.Ang2?.[i]?.[1]?.toFixed(1) || '-')}</td>
+          <td>${(vtableData.Mag2?.[i]?.[1]?.toFixed(1) || '-')}</td>
         </tr>`;
       }
-      const pass2Z = rec.pass2Data.p2Z || [];
-      const pass2X = rec.pass2Data.p2X || [];
-      const pass2Y = rec.pass2Data.p2Y || [];
-      const pass2Mag = rec.pass2Data.p2Mag || [];
-      for (let i = 0; i < pass2Z.length; i++) {
-        html += `<tr>
-          <td>${pass2Z[i][0]}</td>
-          <td>${pass2X[i]?.[1]?.toFixed(1) || '-'}</td>
-          <td>${pass2Y[i]?.[1]?.toFixed(1) || '-'}</td>
-          <td>${pass2Z[i][1]?.toFixed(1) || '-'}</td>
-          <td>${pass2Mag[i]?.[1]?.toFixed(1) || '-'}</td>
-          <td>反向</td>
-        </tr>`;
+      document.getElementById('vtableBody').insertAdjacentHTML('beforeend', html);
+      vtableEnd = nextEnd;
+      const hint = document.getElementById('vtableHint');
+      if (hint) hint.textContent = `已加载 ${vtableEnd} / ${total} 条`;
+    }
+
+    // ========== 历史回放控制 ==========
+    const dataKeys = ['X1','X2','Y1','Y2','Z1','Z2'];
+
+    function updateChartsToIndex(idx) {
+      if (!histAllData || !histCharts.length) return;
+      const z1 = histAllData.Z1 || [];
+      const total = z1.length;
+      if (idx > total) idx = total;
+      const sliced = {};
+      dataKeys.forEach(k => {
+        sliced[k] = (histAllData[k] || []).slice(0, idx);
+      });
+      const baseSeries = histChartBaseSeries;
+      histCharts[0] && histCharts[0].setOption({ animation: false, series: [{ ...baseSeries[0], data: sliced.X1 }] }, { replaceMerge: ['series'] });
+      histCharts[1] && histCharts[1].setOption({ animation: false, series: [{ ...baseSeries[1], data: sliced.X2 }] }, { replaceMerge: ['series'] });
+      histCharts[2] && histCharts[2].setOption({ animation: false, series: [{ ...baseSeries[2], data: sliced.Y1 }] }, { replaceMerge: ['series'] });
+      histCharts[3] && histCharts[3].setOption({ animation: false, series: [{ ...baseSeries[3], data: sliced.Y2 }] }, { replaceMerge: ['series'] });
+      histCharts[4] && histCharts[4].setOption({ animation: false, series: [{ ...baseSeries[4], data: sliced.Z1 }] }, { replaceMerge: ['series'] });
+      histCharts[5] && histCharts[5].setOption({ animation: false, series: [{ ...baseSeries[5], data: sliced.Z2 }] }, { replaceMerge: ['series'] });
+      document.getElementById('histProgress').textContent = `${idx} / ${total}`;
+    }
+
+    function startPlayback() {
+      if (!histAllData) return;
+      const z1 = histAllData.Z1 || [];
+      const total = z1.length;
+      if (total === 0) return;
+      if (playbackIndex >= total) playbackIndex = 0;
+
+      isPlaying = true;
+      document.getElementById('histPlayBtn').disabled = true;
+      document.getElementById('histPauseBtn').disabled = false;
+      document.getElementById('histStopBtn').disabled = false;
+
+      if (playbackTimer) clearInterval(playbackTimer);
+      const interval = Math.round(200 / playbackSpeed);
+      playbackTimer = setInterval(() => {
+        playbackIndex++;
+        if (playbackIndex > total) {
+          playbackIndex = total;
+          stopPlayback();
+          return;
+        }
+        updateChartsToIndex(playbackIndex);
+      }, interval);
+    }
+
+    function pausePlayback() {
+      if (playbackTimer) { clearInterval(playbackTimer); playbackTimer = null; }
+      isPlaying = false;
+      document.getElementById('histPlayBtn').disabled = false;
+      document.getElementById('histPauseBtn').disabled = true;
+    }
+
+    function stopPlayback() {
+      if (playbackTimer) { clearInterval(playbackTimer); playbackTimer = null; }
+      isPlaying = false;
+      document.getElementById('histPlayBtn').disabled = false;
+      document.getElementById('histPauseBtn').disabled = true;
+      document.getElementById('histStopBtn').disabled = true;
+      if (histAllData) {
+        updateChartsToIndex(histAllData.Z1 ? histAllData.Z1.length : 0);
       }
-      html += '</tbody></table>';
-      return html;
+      playbackIndex = 0;
+    }
+
+    function onSpeedChange() {
+      playbackSpeed = parseFloat(document.getElementById('histSpeedSlider').value);
+      document.getElementById('histSpeedLabel').textContent = playbackSpeed + 'x';
+      if (isPlaying) {
+        if (playbackTimer) { clearInterval(playbackTimer); playbackTimer = null; }
+        const interval = Math.round(200 / playbackSpeed);
+        const z1 = histAllData ? histAllData.Z1 || [] : [];
+        const total = z1.length;
+        playbackTimer = setInterval(() => {
+          playbackIndex++;
+          if (playbackIndex > total) {
+            playbackIndex = total;
+            stopPlayback();
+            return;
+          }
+          updateChartsToIndex(playbackIndex);
+        }, interval);
+      }
     }
 
     function exportCurrent(format) {
-      if (!currentRecord) return alert('请先选择一条记录');
+      if (!currentRecord) { showToast('提示', '请先选择一条记录'); return; }
       const rec = currentRecord;
       switch (format) {
         case 'png': exportCombinedPNG(); break;
@@ -182,22 +765,22 @@
     }
 
     function exportCombinedPNG() {
-      const chartIds = ['chart1','chart2','chart3','chart4','chart5','chart6','chart7','chart8'];
+      const chartIds = ['histchart1','histchart2','histchart3','histchart4','histchart5','histchart6'];
       const charts = chartIds.map(id => echarts.getInstanceByDom(document.getElementById(id)));
-      if (charts.some(c => !c)) return alert('图表未就绪');
+      if (charts.some(c => !c)) { showToast('提示', '图表未就绪，请稍后重试'); return; }
 
-      const urls = charts.map(c => c.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#111' }));
+      const urls = charts.map(c => c.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#0d1114' }));
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       const singleWidth = 600, singleHeight = 350;
-      canvas.width = singleWidth * 4;
+      canvas.width = singleWidth * 3;
       canvas.height = singleHeight * 2;
-      ctx.fillStyle = '#111111';
+      ctx.fillStyle = '#0d1114';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       const positions = [
-        {x:0,y:0},{x:singleWidth,y:0},{x:singleWidth*2,y:0},{x:singleWidth*3,y:0},
-        {x:0,y:singleHeight},{x:singleWidth,y:singleHeight},{x:singleWidth*2,y:singleHeight},{x:singleWidth*3,y:singleHeight}
+        {x:0,y:0},{x:singleWidth,y:0},{x:singleWidth*2,y:0},
+        {x:0,y:singleHeight},{x:singleWidth,y:singleHeight},{x:singleWidth*2,y:singleHeight}
       ];
 
       let loadedCount = 0;
@@ -206,7 +789,7 @@
         img.onload = () => {
           ctx.drawImage(img, positions[i].x, positions[i].y, singleWidth, singleHeight);
           loadedCount++;
-          if (loadedCount === 8) {
+          if (loadedCount === 6) {
             const a = document.createElement('a');
             a.href = canvas.toDataURL('image/png');
             a.download = 'combined_charts.png';
@@ -226,36 +809,141 @@
     }
 
     function exportToExcel(rec) {
+      if (typeof XLSX === 'undefined') { showToast('提示', 'XLSX 库加载中，请稍后再试'); return; }
+      const d = rec.data;
+      if (!d) { showToast('提示', '数据为空'); return; }
       const wb = XLSX.utils.book_new();
-      const p1Data = [['距离(cm)','X','Y','Z','总磁通量']];
-      rec.pass1Data.p1Z.forEach((_, i) => {
-        p1Data.push([rec.pass1Data.p1Z[i][0], rec.pass1Data.p1X[i][1], rec.pass1Data.p1Y[i][1], rec.pass1Data.p1Z[i][1], rec.pass1Data.p1Mag[i][1]]);
+      const sheetData = [['距离d(mm)','X1','Y1','Z1','T1','Ang1','Mag1','X2','Y2','Z2','T2','Ang2','Mag2']];
+      const z1 = d.Z1 || [];
+      z1.forEach((row, i) => {
+        if (!row || !Array.isArray(row)) return;
+        sheetData.push([
+          row[0] != null ? row[0] : 0,
+          (d.X1 || [])[i]?.[1] || 0,
+          (d.Y1 || [])[i]?.[1] || 0,
+          row[1] != null ? row[1] : 0,
+          (d.T1 || [])[i]?.[1] || 0,
+          (d.Ang1 || [])[i]?.[1] || 0,
+          (d.Mag1 || [])[i]?.[1] || 0,
+          (d.X2 || [])[i]?.[1] || 0,
+          (d.Y2 || [])[i]?.[1] || 0,
+          (d.Z2 || [])[i]?.[1] || 0,
+          (d.T2 || [])[i]?.[1] || 0,
+          (d.Ang2 || [])[i]?.[1] || 0,
+          (d.Mag2 || [])[i]?.[1] || 0
+        ]);
       });
-      const ws1 = XLSX.utils.aoa_to_sheet(p1Data);
-      XLSX.utils.book_append_sheet(wb, ws1, '正向');
-
-      const p2Data = [['距离(cm)','X','Y','Z','总磁通量']];
-      rec.pass2Data.p2Z.forEach((_, i) => {
-        p2Data.push([rec.pass2Data.p2Z[i][0], rec.pass2Data.p2X[i][1], rec.pass2Data.p2Y[i][1], rec.pass2Data.p2Z[i][1], rec.pass2Data.p2Mag[i][1]]);
-      });
-      const ws2 = XLSX.utils.aoa_to_sheet(p2Data);
-      XLSX.utils.book_append_sheet(wb, ws2, '反向');
+      const ws = XLSX.utils.aoa_to_sheet(sheetData);
+      XLSX.utils.book_append_sheet(wb, ws, '扫描数据');
       XLSX.writeFile(wb, 'record.xlsx');
     }
 
     function exportToTxt(rec) {
-      let txt = '距离(cm)\tX\tY\tZ\t总磁通量\n';
-      rec.pass1Data.p1Z.forEach((_, i) => {
-        txt += `${rec.pass1Data.p1Z[i][0]}\t${rec.pass1Data.p1X[i][1]}\t${rec.pass1Data.p1Y[i][1]}\t${rec.pass1Data.p1Z[i][1]}\t${rec.pass1Data.p1Mag[i][1]}\n`;
-      });
-      txt += '\n反向\n';
-      rec.pass2Data.p2Z.forEach((_, i) => {
-        txt += `${rec.pass2Data.p2Z[i][0]}\t${rec.pass2Data.p2X[i][1]}\t${rec.pass2Data.p2Y[i][1]}\t${rec.pass2Data.p2Z[i][1]}\t${rec.pass2Data.p2Mag[i][1]}\n`;
+      const d = rec.data;
+      if (!d) { showToast('提示', '数据为空'); return; }
+      let txt = '距离d(mm)\tX1\tY1\tZ1\tT1\tAng1\tMag1\tX2\tY2\tZ2\tT2\tAng2\tMag2\n';
+      const z1 = d.Z1 || [];
+      z1.forEach((row, i) => {
+        if (!row || !Array.isArray(row)) return;
+        txt += [
+          row[0] != null ? row[0] : 0,
+          (d.X1 || [])[i]?.[1] || 0,
+          (d.Y1 || [])[i]?.[1] || 0,
+          row[1] != null ? row[1] : 0,
+          (d.T1 || [])[i]?.[1] || 0,
+          (d.Ang1 || [])[i]?.[1] || 0,
+          (d.Mag1 || [])[i]?.[1] || 0,
+          (d.X2 || [])[i]?.[1] || 0,
+          (d.Y2 || [])[i]?.[1] || 0,
+          (d.Z2 || [])[i]?.[1] || 0,
+          (d.T2 || [])[i]?.[1] || 0,
+          (d.Ang2 || [])[i]?.[1] || 0,
+          (d.Mag2 || [])[i]?.[1] || 0
+        ].join('\t') + '\n';
       });
       downloadFile(txt, 'record.txt', 'text/plain');
     }
 
+    async function analyzeHistory() {
+      if (!currentRecord) { showToast('提示', '请先选择一条记录'); return; }
+      const d = currentRecord.data;
+      if (!d) { showToast('提示', '数据为空'); return; }
+
+      const btn = document.getElementById('histAiBtn');
+      const resultBox = document.getElementById('aiResultBox');
+      const resultContent = document.getElementById('aiResultContent');
+
+      btn.disabled = true;
+      btn.textContent = '分析中...';
+      resultBox.style.display = 'block';
+      resultContent.textContent = '正在请求 AI 分析，请稍候...';
+
+      const z1 = d.Z1 || [];
+      const dataPoints = [];
+      for (let i = 0; i < z1.length; i++) {
+        if (!z1[i] || !Array.isArray(z1[i])) continue;
+        dataPoints.push({
+          distance: z1[i][0] != null ? z1[i][0] : 0,
+          x1: (d.X1 || [])[i]?.[1] || 0,
+          y1: (d.Y1 || [])[i]?.[1] || 0,
+          z1: z1[i][1] != null ? z1[i][1] : 0,
+          t1: (d.T1 || [])[i]?.[1] || 0,
+          ang1: (d.Ang1 || [])[i]?.[1] || 0,
+          mag1: (d.Mag1 || [])[i]?.[1] || 0,
+          x2: (d.X2 || [])[i]?.[1] || 0,
+          y2: (d.Y2 || [])[i]?.[1] || 0,
+          z2: (d.Z2 || [])[i]?.[1] || 0,
+          t2: (d.T2 || [])[i]?.[1] || 0,
+          ang2: (d.Ang2 || [])[i]?.[1] || 0,
+          mag2: (d.Mag2 || [])[i]?.[1] || 0
+        });
+      }
+
+      try {
+        const res = await fetch(baseURL + '/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dataPoints })
+        });
+        const json = await res.json();
+        if (res.ok && json.analysis) {
+          resultContent.textContent = json.analysis;
+        } else {
+          resultContent.textContent = '分析失败: ' + (json.error || '未知错误');
+          resultContent.style.color = '#c0392b';
+        }
+      } catch (e) {
+        resultContent.textContent = '请求失败: ' + e.message;
+        resultContent.style.color = '#c0392b';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'AI 分析';
+      }
+    }
+
     loadList();
-  </script>
+
+    document.getElementById('clearHistoryBtn').addEventListener('click', () => {
+      document.getElementById('confirmModal').classList.add('show');
+    });
+
+    document.getElementById('confirmCancel').addEventListener('click', () => {
+      document.getElementById('confirmModal').classList.remove('show');
+    });
+
+    document.getElementById('confirmOk').addEventListener('click', async () => {
+      document.getElementById('confirmModal').classList.remove('show');
+      try {
+        const res = await fetch(baseURL + '/history/clear', { method: 'DELETE' });
+        const result = await res.json();
+        showToast('成功', `已清除 ${result.count} 条历史记录`);
+        document.getElementById('detail').style.display = 'none';
+        currentRecord = null;
+        loadList();
+      } catch (e) {
+        showToast('错误', '清除失败: ' + e.message);
+      }
+    });
+</script>
 </body>
 </html>

@@ -4,33 +4,488 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>磁场扫描监控</title>
-  <link rel="stylesheet" href="/css/main.css">
-  <link rel="stylesheet" href="/css/noscript.css">
   <script src="/echarts.min.js"></script>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
-    body { background:#000000; color:#eee; font-family:"Microsoft YaHei",sans-serif; }
-    .chart-grid { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; grid-template-rows:1fr 1fr; gap:10px; padding:10px; height:calc(100vh - 120px); }
-    .chart-box { width:100% !important; height:100% !important; background:#111111; border-radius:8px; }
-    .my-controls { display:flex; align-items:center; gap:10px; padding:10px 20px; background:#111111; flex-wrap:wrap; }
-    .my-controls h1 { font-size:1.2em; color:#e94560; cursor:pointer; }
-    .my-controls button { padding:8px 15px; border:none; border-radius:6px; cursor:pointer; font-size:0.9em; font-weight:bold; color:white; background:#333333; transition:0.3s; }
-    .my-controls button:hover { background:#444444; }
-    .info { margin-left:auto; font-size:0.8em; color:#aaa; display:flex; align-items:center; gap:8px; }
-    #modeIndicator { font-weight:bold; }
-    .ai-result-box { background:#111111; padding:15px; margin:10px; border-radius:10px; max-height:200px; overflow-y:auto; display:none; }
+
+    @keyframes scanline {
+      0% { transform:translateY(-100%); }
+      100% { transform:translateY(100vh); }
+    }
+    @keyframes flicker {
+      0%,100% { opacity:0.04; }
+      50% { opacity:0.07; }
+    }
+    @keyframes fluxPulse {
+      0%,100% { opacity:0.15; }
+      50% { opacity:0.3; }
+    }
+    @keyframes probeSweep {
+      0% { left:-2px; }
+      100% { left:calc(100% + 2px); }
+    }
+
+    body {
+      background:#0a0a0a;
+      color:#b0b0b0;
+      font-family:"Microsoft YaHei","SimHei","PingFang SC",sans-serif;
+      position:relative;
+      overflow-x:hidden;
+      min-height:100vh;
+    }
+
+    /* Magnetic flux field phantom background */
+    body::before {
+      content:'';
+      position:fixed;
+      top:0;left:0;width:100%;height:100%;
+      pointer-events:none;
+      z-index:0;
+      opacity:0.12;
+      background:
+        /* Center core highlights (more opaque to show pole center) */
+        radial-gradient(circle 6% at 20% 50%, rgba(58,123,213,0.9) 0%, rgba(58,123,213,0.4) 50%, rgba(58,123,213,0) 100%),
+        radial-gradient(circle 6% at 80% 50%, rgba(58,123,213,0.9) 0%, rgba(58,123,213,0.4) 50%, rgba(58,123,213,0) 100%),
+        /* dipole field: N-pole arcs curving outward */
+        radial-gradient(ellipse 120% 200% at 20% 50%, transparent 20%, rgba(58,123,213,0.6) 20.5%, transparent 21%),
+        radial-gradient(ellipse 120% 180% at 20% 50%, transparent 32%, rgba(58,123,213,0.4) 32.5%, transparent 33%),
+        radial-gradient(ellipse 120% 160% at 20% 50%, transparent 44%, rgba(58,123,213,0.3) 44.5%, transparent 45%),
+        /* dipole field: S-pole arcs curving outward */
+        radial-gradient(ellipse 120% 200% at 80% 50%, transparent 20%, rgba(58,123,213,0.6) 20.5%, transparent 21%),
+        radial-gradient(ellipse 120% 180% at 80% 50%, transparent 32%, rgba(58,123,213,0.4) 32.5%, transparent 33%),
+        radial-gradient(ellipse 120% 160% at 80% 50%, transparent 44%, rgba(58,123,213,0.3) 44.5%, transparent 45%),
+        /* connecting field lines between poles */
+        radial-gradient(ellipse 250% 120% at 50% 50%, transparent 50%, rgba(58,123,213,0.25) 50.5%, transparent 51%),
+        radial-gradient(ellipse 220% 100% at 50% 50%, transparent 62%, rgba(58,123,213,0.18) 62.5%, transparent 63%),
+        /* outer flux halo */
+        radial-gradient(ellipse 180% 140% at 50% 50%, transparent 68%, rgba(58,123,213,0.12) 68.5%, transparent 69%);
+      animation:fluxPulse 8s ease-in-out infinite;
+    }
+
+    /* Industrial noise texture */
+    body::after {
+      content:'';
+      position:fixed;
+      top:0;left:0;width:100%;height:100%;
+      pointer-events:none;
+      z-index:9998;
+      opacity:0.04;
+      background:
+        repeating-radial-gradient(circle at 17% 32%,#fff 0,#fff 0.5px,transparent 1px,transparent 3px),
+        repeating-radial-gradient(circle at 83% 67%,#fff 0,#fff 0.5px,transparent 1px,transparent 4px),
+        repeating-radial-gradient(circle at 42% 18%,#fff 0,#fff 0.5px,transparent 1px,transparent 5px),
+        repeating-radial-gradient(circle at 61% 81%,#fff 0,#fff 0.5px,transparent 1px,transparent 3px);
+      animation:flicker 8s infinite;
+    }
+
+    /* Scan line overlay */
+    #wrapper::before {
+      content:'';
+      position:fixed;
+      top:0;left:0;width:100%;height:100%;
+      pointer-events:none;
+      z-index:9997;
+      background:repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(58,123,213,0.02) 2px,
+        rgba(58,123,213,0.02) 4px
+      );
+    }
+
+    /* Magnetic flux indicator bar at bottom */
+    #wrapper::after {
+      content:'';
+      position:fixed;
+      bottom:0;left:0;width:100%;height:4px;
+      z-index:9996;
+      pointer-events:none;
+      background:linear-gradient(90deg,
+        #1a3a5a 0%, #3a7bd5 20%, #1a3a5a 40%,
+        #c0392b 50%,
+        #1a3a5a 60%, #3a7bd5 80%, #1a3a5a 100%
+      );
+    }
+
+    /* ── Controls Bar: inspection instrument panel ── */
+    .my-controls {
+      display:flex;
+      align-items:center;
+      gap:20px;
+      padding:14px 28px;
+      background:linear-gradient(180deg, #14181c 0%, #0d1114 100%);
+      flex-wrap:wrap;
+      border-bottom:2px solid #1a2a3a;
+      position:relative;
+      z-index:10;
+      box-shadow:0 2px 16px rgba(0,0,0,0.7);
+    }
+    .my-controls::after {
+      content:'';
+      position:absolute;
+      bottom:-2px;left:0;
+      width:100%;height:1px;
+      background:linear-gradient(90deg, transparent 0%, #3a7bd5 30%, #c0392b 50%, #3a7bd5 70%, transparent 100%);
+      opacity:0.6;
+    }
+    .my-controls h1 {
+      font-size:1.05em;
+      color:#5a9fd4;
+      letter-spacing:3px;
+      font-weight:900;
+      text-shadow:0 0 10px rgba(58,123,213,0.3);
+      position:relative;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .my-controls h1::before {
+      content:'⏣';
+      color:#3a7bd5;
+      font-size:1.1em;
+      text-shadow:0 0 6px rgba(58,123,213,0.5);
+      animation:fluxPulse 3s ease-in-out infinite;
+    }
+    .my-controls button {
+      padding:7px 20px;
+      border:1px solid #2a3a4a;
+      cursor:pointer;
+      font-size:0.82em;
+      font-weight:bold;
+      color:#8aaccc;
+      background:#11171c;
+      letter-spacing:2px;
+      text-transform:uppercase;
+      transition:all 0.25s;
+      position:relative;
+      clip-path:polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+    }
+    .my-controls button::after {
+      content:'';
+      position:absolute;
+      bottom:0;left:10%;width:80%;height:1px;
+      background:transparent;
+      transition:background 0.25s;
+    }
+    .my-controls button:hover {
+      background:#1a2630;
+      border-color:#3a7bd5;
+      color:#a0c8f0;
+      box-shadow:0 0 14px rgba(58,123,213,0.2);
+    }
+    .my-controls button:hover::after {
+      background:#3a7bd5;
+    }
+    .my-controls button.active {
+      background:#1a2a3a;
+      border-color:#3a7bd5;
+      color:#fff;
+      box-shadow:0 0 18px rgba(58,123,213,0.35);
+    }
+    .my-controls button.active::after {
+      background:#3a7bd5;
+    }
+    .info {
+      margin-left:auto;
+      font-size:0.78em;
+      color:#557799;
+      display:flex;
+      align-items:center;
+      gap:16px;
+      letter-spacing:1px;
+    }
+    .result-tag {
+      background:#0d1114;
+      color:#7799aa;
+      padding:6px 20px;
+      font-size:0.82em;
+      white-space:nowrap;
+      display:flex;
+      gap:28px;
+      border:1px solid #1a2a3a;
+      border-left:3px solid #c0392b;
+      letter-spacing:1px;
+      position:relative;
+    }
+    .result-tag::before {
+      content:'●';
+      position:absolute;
+      left:-8px;top:50%;
+      transform:translateY(-50%);
+      color:#c0392b;
+      font-size:0.5em;
+      animation:fluxPulse 2s ease-in-out infinite;
+    }
+    .result-tag span {
+      font-weight:bold;
+      color:#d35400;
+      letter-spacing:2px;
+    }
+    #modeIndicator {
+      font-weight:bold;
+      letter-spacing:2px;
+    }
+
+    /* ── Chart Grid: negative space & visual spacing ── */
+    .chart-grid {
+      display:grid;
+      grid-template-columns:1fr 1fr 1fr;
+      grid-template-rows:1fr 1fr;
+      gap:18px;
+      padding:16px;
+      height:calc(100vh - 118px);
+      position:relative;
+      z-index:5;
+    }
+    .chart-box {
+      width:100% !important;
+      height:100% !important;
+      background:#0d1114;
+      border:1px solid #1a2a3a;
+      position:relative;
+      overflow:hidden;
+      transition:border-color 0.3s;
+    }
+    .chart-box:hover {
+      border-color:#2a4a6a;
+    }
+    /* Magnetic flux corner markers */
+    .chart-box::before {
+      content:'';
+      position:absolute;
+      top:6px;left:6px;
+      width:6px;height:6px;
+      background:#2a5a8a;
+      z-index:10;
+      pointer-events:none;
+      box-shadow:0 0 4px rgba(58,123,213,0.4);
+    }
+    .chart-box::after {
+      content:'';
+      position:absolute;
+      top:6px;right:6px;
+      width:6px;height:6px;
+      background:#2a5a8a;
+      z-index:10;
+      pointer-events:none;
+      box-shadow:0 0 4px rgba(58,123,213,0.4);
+    }
+
+    /* ── AI Result Box ── */
+    .ai-result-box {
+      background:#0d1114;
+      padding:16px 24px;
+      margin:12px 16px;
+      max-height:180px;
+      overflow-y:auto;
+      display:none;
+      color:#8899aa;
+      border:1px solid #1a2a3a;
+      border-left:3px solid #3a7bd5;
+      letter-spacing:0.5px;
+      font-size:0.9em;
+      position:relative;
+      z-index:5;
+    }
+    .ai-result-box b {
+      color:#5a9fd4;
+      letter-spacing:2px;
+    }
+
+    /* ── Modal: inspection instrument popup ── */
+    .modal-overlay {
+      display:none;
+      position:fixed;
+      top:0;left:0;
+      width:100%;height:100%;
+      background:rgba(0,0,0,0.78);
+      z-index:10000;
+      justify-content:center;
+      align-items:center;
+      backdrop-filter:blur(2px);
+    }
+    .modal-overlay.show { display:flex; }
+    .modal-box {
+      background:#11171c;
+      padding:24px;
+      width:90%;
+      max-width:500px;
+      max-height:70vh;
+      overflow-y:auto;
+      border:1px solid #2a3a4a;
+      box-shadow:0 0 40px rgba(0,0,0,0.8), 0 0 20px rgba(58,123,213,0.06);
+      position:relative;
+    }
+    .modal-box::before {
+      content:'';
+      position:absolute;
+      top:0;left:0;
+      width:100%;height:2px;
+      background:linear-gradient(90deg, transparent, #3a7bd5, #c0392b, #3a7bd5, transparent);
+    }
+    .modal-box h3 {
+      color:#5a9fd4;
+      margin-bottom:16px;
+      letter-spacing:2px;
+      font-size:1em;
+      text-transform:uppercase;
+    }
+    .modal-item {
+      background:#0d1114;
+      padding:14px;
+      margin:8px 0;
+      cursor:pointer;
+      border:1px solid #1a2a3a;
+      border-left:2px solid #2a3a4a;
+      transition:all 0.2s;
+    }
+    .modal-item:hover {
+      border-color:#3a7bd5;
+      border-left-color:#3a7bd5;
+      background:#111a22;
+    }
+    .modal-item .rec-id { color:#5a9fd4; font-weight:bold; letter-spacing:1px; }
+    .modal-item .rec-time { color:#667788; font-size:0.85em; }
+    .modal-item .rec-info { color:#445566; font-size:0.8em; }
+    .modal-close {
+      float:right;
+      background:none;
+      border:none;
+      color:#445566;
+      font-size:1.5em;
+      cursor:pointer;
+      transition:color 0.2s;
+    }
+    .modal-close:hover { color:#3a7bd5; }
+
+    /* ========== 移动端响应式布局 ========== */
+    @media (max-width: 1024px) {
+      .chart-grid {
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto;
+        height: auto;
+        min-height: 100vh;
+      }
+      .chart-box {
+        height: 240px !important;
+        min-height: 200px;
+      }
+      .my-controls {
+        gap: 10px;
+        padding: 10px 16px;
+      }
+      .my-controls h1 {
+        font-size: 0.9em;
+        letter-spacing: 1px;
+      }
+      .my-controls button {
+        padding: 5px 12px;
+        font-size: 0.72em;
+        letter-spacing: 1px;
+      }
+      .info {
+        font-size: 0.7em;
+        gap: 8px;
+      }
+      .result-tag {
+        font-size: 0.7em;
+        padding: 4px 12px;
+        gap: 12px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .chart-grid {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto;
+        height: auto;
+        gap: 12px;
+        padding: 10px;
+      }
+      .chart-box {
+        height: 220px !important;
+        min-height: 180px;
+      }
+      .my-controls {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+        padding: 8px 12px;
+      }
+      .my-controls h1 {
+        font-size: 0.85em;
+        width: 100%;
+      }
+      .my-controls button {
+        padding: 5px 10px;
+        font-size: 0.7em;
+        letter-spacing: 0.5px;
+      }
+      .info {
+        margin-left: 0;
+        flex-wrap: wrap;
+        gap: 6px;
+        font-size: 0.68em;
+        width: 100%;
+      }
+      .result-tag {
+        font-size: 0.68em;
+        padding: 4px 8px;
+        gap: 8px;
+        width: 100%;
+      }
+      .modal-box {
+        width: 95%;
+        max-height: 80vh;
+        padding: 16px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .chart-box {
+        height: 180px !important;
+        min-height: 150px;
+      }
+      .my-controls button {
+        padding: 4px 8px;
+        font-size: 0.65em;
+      }
+      .info {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+    }
+
+    /* 横屏手机：2列布局 */
+    @media (max-width: 900px) and (orientation: landscape) {
+      .chart-grid {
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto;
+        height: auto;
+      }
+      .chart-box {
+        height: 200px !important;
+        min-height: 160px;
+      }
+    }
   </style>
 </head>
 <body class="is-preload">
 
   <div id="wrapper">
     <div class="my-controls">
-      <h1 title="双击可切换离线回放">磁扫描监控</h1>
+      <h1>磁扫描监控 - 双传感器</h1>
       <button id="aiBtn">AI分析</button>
+      <button id="aiSettingsBtn" title="AI模型设置" style="background:#0d1a2a;border:1px solid #2a3a4a;color:#7799aa;padding:6px 10px;cursor:pointer;font-size:0.9em;border-radius:3px;margin-left:4px;">⚙</button>
+      <button id="liveBtn" class="active">实时图像</button>
+      <button id="replayBtn">历史回放</button>
       <button id="historyBtn">历史</button>
+      <span class="result-tag">检测结果：缺陷类型 <span id="defectType">---</span>  ；缺陷位置 <span id="defectPos">---</span>  ；数据点 <span id="pointCount">0</span></span>
       <span class="info">
-        <span id="modeIndicator">扫描中...</span> | 
-        <span id="progressInfo">就绪</span>
+        <span>设备:<span id="deviceStatus">检测中...</span></span> |
+        <span>服务器:<span id="modeIndicator">扫描中...</span></span> | 
+        <span id="progressInfo">未连接设备</span>
       </span>
     </div>
     <div class="chart-grid">
@@ -40,24 +495,21 @@
       <div id="chart4" class="chart-box"></div>
       <div id="chart5" class="chart-box"></div>
       <div id="chart6" class="chart-box"></div>
-      <div id="chart7" class="chart-box"></div>
-      <div id="chart8" class="chart-box"></div>
     </div>
     <div id="aiResultBox" class="ai-result-box">
       <b>AI 分析结果：</b>
       <p id="aiText"></p>
     </div>
+    <div class="modal-overlay" id="replayModal">
+      <div class="modal-box">
+        <button class="modal-close" onclick="closeReplayModal()">&times;</button>
+        <h3>选择历史记录进行回放</h3>
+        <div id="replayList">加载中...</div>
+      </div>
+    </div>
   </div>
 
-  <script src="/js/jquery.min.js"></script>
-  <script src="/js/browser.min.js"></script>
-  <script src="/js/breakpoints.min.js"></script>
-  <script src="/js/util.js"></script>
-  <script src="/js/main.js"></script>
-  <script src="/data_forward.js"></script>
-  <script src="/data_backward.js"></script>
-
-  <!-- 内嵌 Socket.IO 客户端（请替换为从服务器复制的完整代码） -->
+  <!-- 内嵌 Socket.IO 客户端 -->
   <script>
    /*!
  * Socket.IO v4.8.3
@@ -5016,6 +5468,51 @@
 //# sourceMappingURL=socket.io.js.map
   </script>
 
+  <!-- 通用 Toast 弹窗 -->
+  <div class="toast-overlay" id="toastOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.78);z-index:10001;justify-content:center;align-items:center;backdrop-filter:blur(2px);">
+    <div style="background:#11171c;padding:24px;width:90%;max-width:420px;border:1px solid #2a3a4a;box-shadow:0 0 40px rgba(0,0,0,0.8);position:relative;text-align:center;">
+      <div style="position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,#3a7bd5,#c0392b,#3a7bd5,transparent);"></div>
+      <h3 id="toastTitle" style="color:#c0392b;margin-bottom:12px;letter-spacing:2px;font-size:1em;"></h3>
+      <p id="toastMsg" style="color:#8899aa;font-size:0.85em;line-height:1.6;margin-bottom:22px;white-space:pre-wrap;"></p>
+      <button id="toastOk" style="padding:8px 28px;background:#11171c;color:#8aaccc;border:1px solid #2a3a4a;cursor:pointer;font-size:0.85em;font-weight:bold;letter-spacing:2px;transition:all 0.25s;clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);">确定</button>
+    </div>
+  </div>
+
+  <!-- AI 模型设置弹窗 -->
+  <div class="toast-overlay" id="aiSettingsOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.82);z-index:10002;justify-content:center;align-items:center;backdrop-filter:blur(3px);">
+    <div style="background:#11171c;padding:24px;width:90%;max-width:480px;border:1px solid #2a3a4a;box-shadow:0 0 50px rgba(0,0,0,0.85);position:relative;text-align:center;max-height:90vh;overflow-y:auto;">
+      <div style="position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,#3a7bd5,#51cf66,#3a7bd5,transparent);"></div>
+      <h3 style="color:#8aaccc;margin-bottom:16px;letter-spacing:2px;font-size:1em;">AI 模型设置</h3>
+      <div style="margin-bottom:16px;">
+        <span style="color:#557799;font-size:0.85em;">当前模型：</span>
+        <span id="aiModelLabel" style="color:#51cf66;font-weight:bold;font-size:0.9em;">默认模型</span>
+      </div>
+      <div style="margin-bottom:14px;text-align:left;">
+        <label style="color:#557799;font-size:0.8em;display:block;margin-bottom:6px;">模型名称：</label>
+        <input id="aiModelNameInput" type="text" placeholder="输入自定义模型名称..." style="width:100%;background:#0a0f14;border:1px solid #2a3a4a;color:#8aaccc;padding:10px 12px;font-size:0.85em;outline:none;">
+      </div>
+      <div style="margin-bottom:10px;text-align:left;">
+        <label style="color:#557799;font-size:0.8em;display:block;margin-bottom:6px;">API Key：</label>
+        <div style="display:flex;gap:0;">
+          <input id="aiKeyInput" type="password" placeholder="输入 API Key..." style="flex:1;background:#0a0f14;border:1px solid #2a3a4a;color:#8aaccc;padding:10px 12px;font-size:0.85em;outline:none;letter-spacing:1px;border-right:none;">
+          <button id="aiToggleKey" type="button" style="background:#0a0f14;border:1px solid #2a3a4a;color:#557799;padding:8px 12px;cursor:pointer;font-size:0.8em;line-height:1;display:flex;align-items:center;">
+            <svg id="aiEyeOn" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg id="aiEyeOff" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </button>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:center;margin-bottom:16px;">
+        <button id="aiSaveKey" style="padding:8px 24px;background:#1a2a1a;color:#51cf66;border:1px solid #2a4a2a;cursor:pointer;font-size:0.85em;font-weight:bold;letter-spacing:2px;transition:all 0.25s;clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);">保存</button>
+        <button id="aiResetKey" style="padding:8px 24px;background:#1a1515;color:#c0392b;border:1px solid #3a2020;cursor:pointer;font-size:0.85em;font-weight:bold;letter-spacing:2px;transition:all 0.25s;clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);">恢复默认</button>
+        <button id="aiCancelSettings" style="padding:8px 24px;background:#11171c;color:#8aaccc;border:1px solid #2a3a4a;cursor:pointer;font-size:0.85em;font-weight:bold;letter-spacing:2px;transition:all 0.25s;clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);">取消</button>
+      </div>
+      <div style="text-align:left;border-top:1px solid #1a2a3a;padding-top:14px;">
+        <span style="color:#557799;font-size:0.8em;display:block;margin-bottom:8px;">已保存的 Key：</span>
+        <div id="aiSavedKeysList" style="max-height:160px;overflow-y:auto;"></div>
+      </div>
+    </div>
+  </div>
+
   <script>
     // ========== 公网优先 + 内网回退 ==========
     const PUBLIC_IP = "47.96.190.248";
@@ -5024,31 +5521,46 @@
     let useServer = false, socket = null;
     let currentServerIP = '';
     let currentServerPort = '3000';
-    let forwardData = [], backwardData = [], currentData = [];
-    let dataIndex = 0, playbackTimer = null, addDataPoint = null;
-    let pendingPoints = [];
-    let isOfflinePlaying = false;
+    let playbackTimer = null;
+    let isHistoryPlaying = false;
 
     let bufferPoints = [];
-    const UPDATE_INTERVAL = 200;    // 更新间隔 200ms（每秒5次），降低渲染压力
-    const MAX_POINTS = 800;         // 最多保留 800 个点，减少内存占用
+    const UPDATE_INTERVAL = 200;
+    const MAX_POINTS = 2000;
+    const MAX_BUFFER_POINTS = 5000;
+    let speedMultiplier = 1.0;
+    let currentAiModelName = '默认模型';
+    const eyeOnSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    const eyeOffSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+    let processIntervalId = null;
+    let deviceStatusTimer = null;
 
-    let lastPassForClear = 0;
-    let lastAngleForClear = 0;
-
-    function parseRaw(rawArr) {
-      return rawArr.map(r => ({ time: r[1], position: r[2], ch2: r[3], ch4: r[5], ch6: r[7] }));
-    }
-    if (typeof FORWARD_DATA !== 'undefined') forwardData = parseRaw(FORWARD_DATA);
-    if (typeof BACKWARD_DATA !== 'undefined') backwardData = parseRaw(BACKWARD_DATA);
-    currentData = forwardData;
+    let lastDistForClear = 0;
+    let cycleMaxDist = 0;
+    let clearAllDataFn = null;
 
     const modeIndicator = document.getElementById('modeIndicator');
     const progressInfo = document.getElementById('progressInfo');
+    const deviceStatus = document.getElementById('deviceStatus');
     const aiBtn = document.getElementById('aiBtn');
+    const liveBtn = document.getElementById('liveBtn');
+    const replayBtn = document.getElementById('replayBtn');
     const historyBtn = document.getElementById('historyBtn');
+    const defectTypeEl = document.getElementById('defectType');
+    const defectPosEl = document.getElementById('defectPos');
+    const pointCountEl = document.getElementById('pointCount');
     const aiResultBox = document.getElementById('aiResultBox');
     const aiText = document.getElementById('aiText');
+
+    // 通用 Toast 弹窗（替代 alert）
+    function showToast(title, msg) {
+      const overlay = document.getElementById('toastOverlay');
+      document.getElementById('toastTitle').textContent = title;
+      document.getElementById('toastTitle').style.color = title === '错误' ? '#c0392b' : '#8aaccc';
+      document.getElementById('toastMsg').textContent = msg;
+      overlay.style.display = 'flex';
+      document.getElementById('toastOk').onclick = () => overlay.style.display = 'none';
+    }
 
     function connectToServer(ip, port) {
       if (socket) { socket.close(); socket = null; }
@@ -5057,12 +5569,16 @@
       currentServerPort = port;
       modeIndicator.textContent = '连接中...';
       modeIndicator.style.color = '#f0ad4e';
+      deviceStatus.textContent = '等待数据';
+      deviceStatus.style.color = '#f0ad4e';
 
       const url = `http://${ip}:${port}`;
       console.log('尝试连接:', url);
 
       if (typeof io === 'undefined') {
-        fallbackToOffline();
+        modeIndicator.textContent = '库加载失败';
+        modeIndicator.style.color = '#c0392b';
+        progressInfo.textContent = 'Socket.IO未加载';
         return;
       }
 
@@ -5071,27 +5587,46 @@
           transports: ['polling'],
           timeout: 5000,
           reconnection: true,
-          reconnectionAttempts: 3,
+          reconnectionAttempts: Infinity,
           reconnectionDelay: 1000
         });
 
         socket.on('connect', () => {
           useServer = true;
-          isOfflinePlaying = false;
-          modeIndicator.textContent = '实时';
+          connecting = false;
+          isHistoryPlaying = false;
+          replayBtn.classList.remove('active');
+          modeIndicator.textContent = '已连接';
           modeIndicator.style.color = '#51cf66';
+          progressInfo.textContent = ip + ':' + port;
+          localStorage.setItem('serverIP', ip);
+          localStorage.setItem('serverPort', port);
           console.log('✅ 连接成功:', ip);
         });
 
-        socket.on('connect_error', () => {});
+        socket.on('connect_error', () => {
+          connecting = false;
+        });
 
         socket.on('disconnect', () => {
-          fallbackToOffline();
+          useServer = false;
+          connecting = false;
+          if (socket) { socket.close(); socket = null; }
+          if (!isHistoryPlaying) {
+            modeIndicator.textContent = '未连接';
+            modeIndicator.style.color = '#c0392b';
+            progressInfo.textContent = '未连接服务器';
+          }
         });
 
         socket.on('scanPoint', (pt) => {
-          bufferPoints.push(pt);
-          progressInfo.textContent = `距离:${pt.position?.toFixed(1) || pt.angle?.toFixed(1) || 0}cm  Z:${pt.z?.toFixed(1) || 0}`;
+          if (!isHistoryPlaying) {
+            bufferPoints.push(pt);
+            if (bufferPoints.length > MAX_BUFFER_POINTS + 200) {
+              bufferPoints.splice(0, 200);
+            }
+            progressInfo.textContent = `距离:${pt.distance?.toFixed(1) || 0}mm  Z1:${pt.z1?.toFixed(1) || 0}  Z2:${pt.z2?.toFixed(1) || 0}`;
+          }
         });
 
         socket.on('analyzeResult', (result) => {
@@ -5100,61 +5635,136 @@
           if (result.analysis) {
             aiText.textContent = result.analysis;
             aiResultBox.style.display = 'block';
+            if (result.defectType) defectTypeEl.textContent = result.defectType;
+            if (result.defectPos) defectPosEl.textContent = result.defectPos;
           } else {
-            alert('分析失败: ' + (result.error || '未知错误'));
+            showToast('错误', '分析失败: ' + (result.error || '未知错误'));
           }
+        });
+
+        socket.on('modelInfo', (info) => {
+          currentAiModelName = info.modelName || '默认模型';
+          document.getElementById('aiModelLabel').textContent = currentAiModelName;
+          document.getElementById('aiModelLabel').style.color = (currentAiModelName === '默认模型') ? '#51cf66' : '#f0ad4e';
+          if (info.error) showToast('提示', info.error);
         });
 
       } catch (e) {}
     }
 
-    function fallbackToOffline() {
-      useServer = false;
-      if (socket) { socket.close(); socket = null; }
-      if (!isOfflinePlaying) {
-        modeIndicator.textContent = '离线';
-        modeIndicator.style.color = '#f0ad4e';
-      }
-    }
-
-    function stopPlayback() {
+    function stopHistoryPlayback() {
       if (playbackTimer) { clearInterval(playbackTimer); playbackTimer = null; }
-      isOfflinePlaying = false;
-      modeIndicator.textContent = '离线';
-      modeIndicator.style.color = '#f0ad4e';
-    }
-
-    function startPlayback() {
-      if (useServer) return;
-      isOfflinePlaying = true;
-      modeIndicator.textContent = '离线回放';
-      modeIndicator.style.color = '#f0ad4e';
-      dataIndex = 0;
-      playbackTimer = setInterval(() => {
-        if (dataIndex >= currentData.length) dataIndex = 0;
-        const row = currentData[dataIndex];
-        const angle = row.position, x = row.ch2, y = row.ch6, z = row.ch4;
-        const mag = Math.sqrt(x*x + y*y + z*z);
-        const pt = {
-          pass: currentData === forwardData ? 1 : 2,
-          angle, x, y, z, mag,
-          anomaly: 0, expected: 0, diff: 0,
-          currentPoint: dataIndex + 1, totalPoints: currentData.length
-        };
-        bufferPoints.push(pt);
-        dataIndex++;
-      }, 200);
-    }
-
-    document.querySelector('h1').addEventListener('dblclick', () => {
+      isHistoryPlaying = false;
+      replayBtn.classList.remove('active');
+      liveBtn.classList.add('active');
       if (useServer) {
-        alert('已连接服务器，离线回放不可用');
-        return;
-      }
-      if (isOfflinePlaying) {
-        stopPlayback();
+        modeIndicator.textContent = '已连接';
+        modeIndicator.style.color = '#51cf66';
+        progressInfo.textContent = currentServerIP + ':' + currentServerPort;
       } else {
-        startPlayback();
+        modeIndicator.textContent = '未连接';
+        modeIndicator.style.color = '#c0392b';
+        progressInfo.textContent = '未连接服务器';
+      }
+    }
+
+    function startHistoryPlayback(recordId) {
+      const serverURL = useServer && socket
+        ? `http://${currentServerIP}:${currentServerPort}`
+        : `http://${window.location.hostname}:${window.location.port || '3000'}`;
+
+      fetch(`${serverURL}/history/${recordId}`)
+        .then(r => r.json())
+        .then(record => {
+          if (!record.data) { showToast('错误', '记录数据为空'); return; }
+
+          stopHistoryPlayback();
+          isHistoryPlaying = true;
+          replayBtn.classList.add('active');
+          liveBtn.classList.remove('active');
+          modeIndicator.textContent = '历史回放';
+          modeIndicator.style.color = '#f0ad4e';
+
+          bufferPoints = [];
+          if (clearAllDataFn) clearAllDataFn();
+          lastDistForClear = 0;
+
+          const z1Data = record.data.Z1 || [];
+          const totalPoints = z1Data.length;
+          let idx = 0;
+
+          playbackTimer = setInterval(() => {
+            if (idx >= totalPoints) {
+              stopHistoryPlayback();
+              progressInfo.textContent = `回放完成 (${totalPoints}点)`;
+              return;
+            }
+            const pt = {
+              distance: z1Data[idx][0],
+              x1: record.data.X1[idx]?.[1] || 0,
+              y1: record.data.Y1[idx]?.[1] || 0,
+              z1: z1Data[idx][1] || 0,
+              t1: record.data.T1[idx]?.[1] || 0,
+              ang1: record.data.Ang1[idx]?.[1] || 0,
+              mag1: record.data.Mag1[idx]?.[1] || 0,
+              x2: record.data.X2[idx]?.[1] || 0,
+              y2: record.data.Y2[idx]?.[1] || 0,
+              z2: record.data.Z2[idx]?.[1] || 0,
+              t2: record.data.T2[idx]?.[1] || 0,
+              ang2: record.data.Ang2[idx]?.[1] || 0,
+              mag2: record.data.Mag2[idx]?.[1] || 0,
+              currentPoint: idx + 1,
+              totalPoints: totalPoints
+            };
+            bufferPoints.push(pt);
+            progressInfo.textContent = `回放: ${(idx + 1)}/${totalPoints}  距离:${pt.distance.toFixed(1)}mm`;
+            idx++;
+          }, Math.round(200 / speedMultiplier));
+        })
+        .catch(e => {
+          showToast('错误', '加载历史数据失败: ' + e.message);
+        });
+    }
+
+    function openReplayModal() {
+      const modal = document.getElementById('replayModal');
+      const listDiv = document.getElementById('replayList');
+      modal.classList.add('show');
+      listDiv.innerHTML = '加载中...';
+
+      const serverURL = useServer && socket
+        ? `http://${currentServerIP}:${currentServerPort}`
+        : `http://${window.location.hostname}:${window.location.port || '3000'}`;
+
+      fetch(`${serverURL}/history`)
+        .then(r => r.json())
+        .then(list => {
+          if (list.length === 0) {
+            listDiv.innerHTML = '<p style="color:#aaa;text-align:center;">暂无历史记录</p>';
+            return;
+          }
+          listDiv.innerHTML = list.map(r =>
+            `<div class="modal-item" onclick="startHistoryPlayback(${r.id});closeReplayModal();">
+              <span class="rec-id">记录 #${r.id}</span>
+              <span class="rec-time">${r.timestamp}</span>
+              <div class="rec-info">${r.pointCount} 点 | ${r.distRange}</div>
+            </div>`
+          ).join('');
+        })
+        .catch(e => {
+          listDiv.innerHTML = '<p style="color:red;">加载失败: ' + e.message + '</p>';
+        });
+    }
+
+    function closeReplayModal() {
+      document.getElementById('replayModal').classList.remove('show');
+    }
+
+    replayBtn.addEventListener('click', () => {
+      if (isHistoryPlaying) {
+        stopHistoryPlayback();
+      } else {
+        openReplayModal();
       }
     });
 
@@ -5175,8 +5785,15 @@
     }
 
     function tryAppMode() {
-      modeIndicator.textContent = '扫描中...';
+      modeIndicator.textContent = '搜索中...';
       modeIndicator.style.color = '#f0ad4e';
+
+      if (typeof RTCPeerConnection === 'undefined') {
+        modeIndicator.textContent = '浏览器不支持';
+        modeIndicator.style.color = '#c0392b';
+        scanSubnet();
+        return;
+      }
 
       const pc = new RTCPeerConnection({ iceServers: [] });
       pc.createDataChannel('');
@@ -5206,38 +5823,56 @@
       }, 3000);
     }
 
-    function scanSubnet(subnet) {
-      let found = false;
-      let checkedCount = 0;
-      for (let i = 1; i <= 255; i++) {
-        const ip = `${subnet}.${i}`;
-        const img = new Image();
-        const checkIP = ip;
-        img.onload = img.onerror = function() {
-          checkedCount++;
-          if (!found && !useServer) {
-            connectToServer(checkIP, currentServerPort);
-            setTimeout(() => {
-              if (useServer && !found) found = true;
-              if (checkedCount >= 255 && !found && !useServer) scanCommonSubnets();
-            }, 800);
-          }
-        };
-        img.src = `http://${ip}:${currentServerPort}/favicon.ico?t=${Date.now()}&ip=${i}`;
+    let connecting = false;
+
+    async function scanSubnet(subnet) {
+      if (useServer) return;
+
+      const BATCH = 10;
+      for (let base = 1; base <= 255; base += BATCH) {
+        if (useServer) break;
+        let foundInBatch = false;
+        const tasks = [];
+        for (let i = base; i <= Math.min(base + BATCH - 1, 255); i++) {
+          if (useServer) break;
+          const ip = `${subnet}.${i}`;
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 800);
+          tasks.push(
+            fetch(`http://${ip}:${currentServerPort}/device-status`, { signal: controller.signal })
+              .then(resp => {
+                clearTimeout(timer);
+                if (resp.ok && !useServer && !connecting) {
+                  connecting = true;
+                  connectToServer(ip, currentServerPort);
+                  foundInBatch = true;
+                }
+              })
+              .catch(() => clearTimeout(timer))
+          );
+        }
+        await Promise.all(tasks);
+        if (foundInBatch) {
+          await new Promise(r => setTimeout(r, 2000));
+        }
+        if (useServer) break;
       }
     }
 
-    function scanCommonSubnets() {
-      const commonSubnets = ['192.168.43','172.20.10','10.48.99','192.168.1','192.168.0','192.168.137','192.168.42'];
+    async function scanCommonSubnets() {
+      const commonSubnets = ['192.168.43', '192.168.1', '192.168.0'];
       for (const subnet of commonSubnets) {
-        if (!useServer) scanSubnet(subnet);
+        if (useServer) return;
+        await scanSubnet(subnet);
       }
     }
 
     function autoConnect() {
       if (tryBrowserMode()) return;
-      modeIndicator.textContent = '尝试公网连接...';
+      modeIndicator.textContent = '公网连接中...';
       modeIndicator.style.color = '#f0ad4e';
+      deviceStatus.textContent = '等待数据';
+      deviceStatus.style.color = '#f0ad4e';
       connectToServer(PUBLIC_IP, PUBLIC_PORT);
       setTimeout(() => {
         if (!useServer) {
@@ -5249,151 +5884,384 @@
 
     autoConnect();
 
+    // 设备连接状态检测（从服务器轮询 ESP32 真实连接状态）
+    let deviceStatusFailCount = 0;
+    deviceStatusTimer = setInterval(async () => {
+      try {
+        if (!currentServerIP) return;
+        const serverURL = `http://${currentServerIP}:${currentServerPort}/device-status`;
+        const resp = await fetch(serverURL);
+        if (resp.ok) {
+          const status = await resp.json();
+          deviceStatusFailCount = 0;
+          if (status.online) {
+            deviceStatus.textContent = '在线';
+            deviceStatus.style.color = '#51cf66';
+          } else if (status.lastSeen === 0) {
+            deviceStatus.textContent = '等待数据';
+            deviceStatus.style.color = '#f0ad4e';
+          } else {
+            deviceStatus.textContent = '离线';
+            deviceStatus.style.color = '#c0392b';
+          }
+        }
+      } catch (e) {
+        deviceStatusFailCount++;
+        if (deviceStatusFailCount > 2) {
+          deviceStatus.textContent = '服务器离线';
+          deviceStatus.style.color = '#c0392b';
+        }
+      }
+    }, 3000);
+
     aiBtn.addEventListener('click', () => {
-      if (!window.p1Z || window.p1Z.length === 0) { alert('暂无正向数据'); return; }
-      if (!useServer || !socket) { alert('请先连接服务器'); return; }
-      const dataPoints = window.p1Z.map(item => ({ angle: item[0], z: item[1] }));
+      if (!useServer || !socket) { showToast('提示', '请先连接服务器'); return; }
       aiBtn.disabled = true;
       aiBtn.textContent = '分析中...';
       aiResultBox.style.display = 'none';
-      socket.emit('analyze', { dataPoints });
+      socket.emit('analyze', {});
     });
+
+    const aiSettingsBtn = document.getElementById('aiSettingsBtn');
+    const aiCancelSettings = document.getElementById('aiCancelSettings');
+    const aiToggleKey = document.getElementById('aiToggleKey');
+    const aiSaveKey = document.getElementById('aiSaveKey');
+    const aiResetKey = document.getElementById('aiResetKey');
+    const aiSavedKeysList = document.getElementById('aiSavedKeysList');
+
+    if (aiSettingsBtn) {
+      aiSettingsBtn.addEventListener('click', () => {
+        document.getElementById('aiKeyInput').value = '';
+        document.getElementById('aiKeyInput').type = 'password';
+        document.getElementById('aiEyeOn').style.display = '';
+        document.getElementById('aiEyeOff').style.display = 'none';
+        document.getElementById('aiModelNameInput').value = (currentAiModelName === '默认模型') ? '' : currentAiModelName;
+        document.getElementById('aiModelLabel').textContent = currentAiModelName;
+        document.getElementById('aiModelLabel').style.color = (currentAiModelName === '默认模型') ? '#51cf66' : '#f0ad4e';
+        renderSavedKeys();
+        document.getElementById('aiSettingsOverlay').style.display = 'flex';
+        if (socket) socket.emit('getModelInfo');
+      });
+    }
+
+    if (aiCancelSettings) {
+      aiCancelSettings.addEventListener('click', () => {
+        document.getElementById('aiSettingsOverlay').style.display = 'none';
+      });
+    }
+
+    if (aiToggleKey) {
+      aiToggleKey.addEventListener('click', () => {
+        const inp = document.getElementById('aiKeyInput');
+        const eyeOn = document.getElementById('aiEyeOn');
+        const eyeOff = document.getElementById('aiEyeOff');
+        if (inp.type === 'password') {
+          inp.type = 'text';
+          eyeOn.style.display = 'none';
+          eyeOff.style.display = '';
+        } else {
+          inp.type = 'password';
+          eyeOn.style.display = '';
+          eyeOff.style.display = 'none';
+        }
+      });
+    }
+
+    if (aiSaveKey) {
+      aiSaveKey.addEventListener('click', () => {
+        const key = document.getElementById('aiKeyInput').value.trim();
+        if (!key) { showToast('提示', '请输入 API Key'); return; }
+        if (!key.startsWith('sk-')) { showToast('提示', 'API Key 格式不正确，应以 sk- 开头'); return; }
+        const modelName = document.getElementById('aiModelNameInput').value.trim() || '自定义模型';
+        currentAiModelName = modelName;
+        document.getElementById('aiModelLabel').textContent = currentAiModelName;
+        document.getElementById('aiModelLabel').style.color = '#f0ad4e';
+        saveKeyToStorage(modelName, key);
+        if (socket) socket.emit('setApiKey', { key, modelName });
+        document.getElementById('aiKeyInput').value = '';
+        document.getElementById('aiModelNameInput').value = '';
+        renderSavedKeys();
+        showToast('成功', '已保存并切换到: ' + modelName);
+      });
+    }
+
+    if (aiResetKey) {
+      aiResetKey.addEventListener('click', () => {
+        if (!socket) { showToast('提示', '请先连接服务器'); return; }
+        currentAiModelName = '默认模型';
+        document.getElementById('aiModelLabel').textContent = '默认模型';
+        document.getElementById('aiModelLabel').style.color = '#51cf66';
+        socket.emit('resetApiKey');
+        document.getElementById('aiKeyInput').value = '';
+        document.getElementById('aiModelNameInput').value = '';
+        document.getElementById('aiSettingsOverlay').style.display = 'none';
+        showToast('成功', '已恢复默认模型');
+      });
+    }
+
+    if (aiSavedKeysList) {
+      aiSavedKeysList.addEventListener('click', function(e) {
+        const t = e.target;
+        if (t.classList.contains('ai-use-key')) {
+          const idx = t.getAttribute('data-idx');
+          const keys = getSavedKeys();
+          if (keys[idx]) {
+            if (!socket) { showToast('提示', '请先连接服务器'); return; }
+            currentAiModelName = keys[idx].name;
+            document.getElementById('aiModelLabel').textContent = currentAiModelName;
+            document.getElementById('aiModelLabel').style.color = '#f0ad4e';
+            socket.emit('setApiKey', { key: keys[idx].key, modelName: keys[idx].name });
+            document.getElementById('aiSettingsOverlay').style.display = 'none';
+            showToast('成功', '已切换到: ' + keys[idx].name);
+          }
+        }
+        if (t.classList.contains('ai-del-key')) {
+          const idx = t.getAttribute('data-idx');
+          deleteKeyFromStorage(idx);
+          renderSavedKeys();
+        }
+        if (t.classList.contains('ai-show-key') || (t.parentElement && t.parentElement.classList.contains('ai-show-key'))) {
+          const btn = t.classList.contains('ai-show-key') ? t : t.parentElement;
+          const idx = btn.getAttribute('data-idx');
+          const row = btn.parentElement;
+          const masked = row.querySelector('.ai-key-masked');
+          const full = row.querySelector('.ai-key-full');
+          if (masked.style.display !== 'none') {
+            masked.style.display = 'none';
+            full.style.display = '';
+            btn.innerHTML = eyeOffSvg;
+          } else {
+            masked.style.display = '';
+            full.style.display = 'none';
+            btn.innerHTML = eyeOnSvg;
+          }
+        }
+      });
+    }
+
+    function getSavedKeys() {
+      try { return JSON.parse(localStorage.getItem('aiSavedKeys') || '[]'); } catch(e) { return []; }
+    }
+
+    function saveKeyToStorage(name, key) {
+      const keys = getSavedKeys();
+      const existIdx = keys.findIndex(k => k.key === key);
+      if (existIdx >= 0) {
+        keys[existIdx].name = name;
+        keys[existIdx].time = Date.now();
+      } else {
+        keys.push({ name, key, time: Date.now() });
+      }
+      localStorage.setItem('aiSavedKeys', JSON.stringify(keys));
+    }
+
+    function deleteKeyFromStorage(idx) {
+      const keys = getSavedKeys();
+      if (idx >= 0 && idx < keys.length) {
+        keys.splice(idx, 1);
+        localStorage.setItem('aiSavedKeys', JSON.stringify(keys));
+      }
+      renderSavedKeys();
+    }
+
+    function renderSavedKeys() {
+      const container = document.getElementById('aiSavedKeysList');
+      if (!container) return;
+      const keys = getSavedKeys();
+      if (keys.length === 0) {
+        container.innerHTML = '<div style="color:#557799;font-size:0.8em;padding:8px;text-align:center;">暂无保存的 Key</div>';
+        return;
+      }
+      const curModel = currentAiModelName;
+      let html = '';
+      keys.forEach((k, i) => {
+        const isActive = k.name === curModel;
+        const bg = isActive ? 'background:#0d1a2a;border-color:#3a7bd5;' : 'background:#0a0f14;border-color:#1a2a3a;';
+        const dot = isActive ? '●' : '○';
+        const dotColor = isActive ? '#51cf66' : '#557799';
+        html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:4px;border:1px solid;' + bg + '">';
+        html += '<span style="color:' + dotColor + ';font-size:0.8em;">' + dot + '</span>';
+        html += '<span style="color:#8aaccc;font-size:0.8em;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + k.name + '</span>';
+        html += '<span class="ai-key-masked" style="color:#556677;font-size:0.7em;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + '●'.repeat(Math.min(k.key.length, 20)) + '</span>';
+        html += '<span class="ai-key-full" style="display:none;color:#8aaccc;font-size:0.65em;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + k.key + '</span>';
+        html += '<button class="ai-show-key" data-idx="' + i + '" style="background:transparent;border:1px solid #2a3a4a;color:#557799;padding:2px 5px;cursor:pointer;font-size:0.7em;line-height:1;display:flex;align-items:center;">' + eyeOnSvg + '</button>';
+        html += '<button class="ai-use-key" data-idx="' + i + '" style="background:#0d1a2a;border:1px solid #2a4a3a;color:#51cf66;padding:3px 10px;cursor:pointer;font-size:0.7em;white-space:nowrap;">使用</button>';
+        html += '<button class="ai-del-key" data-idx="' + i + '" style="background:#1a1515;border:1px solid #3a2020;color:#c0392b;padding:3px 8px;cursor:pointer;font-size:0.7em;white-space:nowrap;">删除</button>';
+        html += '</div>';
+      });
+      container.innerHTML = html;
+    }
 
     historyBtn.addEventListener('click', () => {
-      window.location.href = 'history.html';
+      const ip = currentServerIP || localStorage.getItem('serverIP') || '';
+      const port = currentServerPort || localStorage.getItem('serverPort') || '3000';
+      window.location.href = `history.html?ip=${encodeURIComponent(ip)}&port=${encodeURIComponent(port)}`;
     });
 
-    // ========== ECharts 初始化（八张图，减负版） ==========
+    // ========== ECharts 初始化（六张图：距离 vs X1/X2/Y1/Y2/Z1/Z2） ==========
     function initCharts() {
       if (typeof echarts === 'undefined') { setTimeout(initCharts, 500); return; }
-      
+
       const charts = [];
-      for (let i = 1; i <= 8; i++) {
+      for (let i = 1; i <= 6; i++) {
         charts[i] = echarts.init(document.getElementById('chart' + i));
       }
 
-      let p1X=[], p1Y=[], p1Z=[], p1Mag=[];
-      let p2X=[], p2Y=[], p2Z=[], p2Mag=[];
+      let x1Data=[], x2Data=[], y1Data=[], y2Data=[], z1Data=[], z2Data=[];
+      let t1Data=[], ang1Data=[], mag1Data=[], t2Data=[], ang2Data=[], mag2Data=[];
+      const yRangeCache = [null, null, null, null, null, null, null];  // 缓存 Y 轴范围，避免 getOption() 深拷贝
 
-      const grid = { top:40, bottom:60, left:55, right:10 };
-      const xAxisCommon = { type:'value', name:'距离 (cm)', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'} };
+      const grid = { top:40, bottom:65, left:60, right:14 };
+      const xAxisCommon = { type:'value', name:'距离 (mm)', nameTextStyle:{color:'#557799', fontSize:11, fontWeight:'bold'}, axisLabel:{color:'#446688', fontSize:10}, axisLine:{lineStyle:{color:'#1a2a3a'}}, splitLine:{lineStyle:{color:'#111a22', type:'dashed'}} };
 
-      // 所有曲线去掉 smooth，用折线直接渲染，大幅降低 CPU 占用
-      charts[1].setOption({
-        title:{text:'正向 X轴磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
-        grid, xAxis:{...xAxisCommon, min:0, max:140},
-        yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:-900, max:-800},
-        dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
-        series:[{name:'X', type:'line', data:[], lineStyle:{width:1.5, color:'#ff6b6b'}, symbol:'none'}]
-      });
+      function makeChart(chart, title, yName, color, yMin, yMax) {
+        chart.setOption({
+          backgroundColor:'#0d1114',
+          title:{text:title, left:'center', textStyle:{color:'#7799aa', fontSize:12, fontWeight:'bold', letterSpacing:2}},
+          grid, xAxis:{...xAxisCommon},
+          yAxis:{type:'value', name:yName, nameTextStyle:{color:'#557799', fontSize:11, fontWeight:'bold'}, axisLabel:{color:'#446688', fontSize:10}, min:yMin, max:yMax, axisLine:{lineStyle:{color:'#1a2a3a'}}, splitLine:{lineStyle:{color:'#111a22', type:'dashed'}}},
+          dataZoom:[{type:'inside', xAxisIndex:0, start:0, end:100},{type:'slider', xAxisIndex:0, start:0, end:100, bottom:5, height:14, backgroundColor:'#0d1114', borderColor:'#1a2a3a', fillerColor:'rgba(58,123,213,0.12)', dataBackground:{lineStyle:{color:'#334455'}, areaStyle:{color:'#111a22'}}, selectedDataBackground:{lineStyle:{color:'#3a7bd5'}, areaStyle:{color:'#0d1a2a'}}, textStyle:{color:'#557799'}, handleStyle:{color:'#3a7bd5'}}],
+          series:[{name:title, type:'line', data:[], lineStyle:{width:2, color}, symbol:'none'}]
+        });
+      }
 
-      charts[2].setOption({
-        title:{text:'正向 Y轴磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
-        grid, xAxis:{...xAxisCommon, min:0, max:140},
-        yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:0, max:4000},
-        dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
-        series:[{name:'Y', type:'line', data:[], lineStyle:{width:1.5, color:'#51cf66'}, symbol:'none'}]
-      });
+      makeChart(charts[1], '传感器1 X轴磁通量', 'X1 (uT)', '#ff6b6b');
+      makeChart(charts[2], '传感器2 X轴磁通量', 'X2 (uT)', '#ffa94d');
+      makeChart(charts[3], '传感器1 Y轴磁通量', 'Y1 (uT)', '#51cf66');
+      makeChart(charts[4], '传感器2 Y轴磁通量', 'Y2 (uT)', '#a9e34b');
+      makeChart(charts[5], '传感器1 Z轴磁通量', 'Z1 (uT)', '#339af0');
+      makeChart(charts[6], '传感器2 Z轴磁通量', 'Z2 (uT)', '#9775fa');
 
-      charts[3].setOption({
-        title:{text:'正向 Z轴磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
-        grid, xAxis:{...xAxisCommon, min:0, max:140},
-        yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:0, max:40000},
-        dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
-        series:[{name:'Z', type:'line', data:[], lineStyle:{width:1.5, color:'#339af0'}, symbol:'none'}]
-      });
+      // 存储每个图表的初始完整配置，用于 notMerge 快速更新，避免深度合并开销
+      const chartBaseOptions = [null, null, null, null, null, null, null];
+      for (let i = 1; i <= 6; i++) {
+        chartBaseOptions[i] = charts[i].getOption();
+      }
 
-      charts[4].setOption({
-        title:{text:'正向 总磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
-        grid, xAxis:{...xAxisCommon, min:0, max:140},
-        yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:35100, max:35300},
-        dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
-        series:[{name:'Mag', type:'line', data:[], lineStyle:{width:1.5, color:'#f06595'}, symbol:'none'}]
-      });
-
-      charts[5].setOption({
-        title:{text:'反向 X轴磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
-        grid, xAxis:{...xAxisCommon, min:0, max:150},
-        yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:0, max:150},
-        dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
-        series:[{name:'X', type:'line', data:[], lineStyle:{width:1.5, color:'#ff6b6b'}, symbol:'none'}]
-      });
-
-      charts[6].setOption({
-        title:{text:'反向 Y轴磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
-        grid, xAxis:{...xAxisCommon, min:0, max:150},
-        yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:0, max:2000},
-        dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
-        series:[{name:'Y', type:'line', data:[], lineStyle:{width:1.5, color:'#51cf66'}, symbol:'none'}]
-      });
-
-      charts[7].setOption({
-        title:{text:'反向 Z轴磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
-        grid, xAxis:{...xAxisCommon, min:0, max:150},
-        yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:0, max:600},
-        dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
-        series:[{name:'Z', type:'line', data:[], lineStyle:{width:1.5, color:'#339af0'}, symbol:'none'}]
-      });
-
-      charts[8].setOption({
-        title:{text:'反向 总磁通量', left:'center', textStyle:{color:'#eee', fontSize:12}},
-        grid, xAxis:{...xAxisCommon, min:0, max:150},
-        yAxis:{type:'value', name:'磁通量', nameTextStyle:{color:'#aaa'}, axisLabel:{color:'#aaa'}, min:2100, max:2200},
-        dataZoom:[{type:'inside', xAxisIndex:0},{type:'slider', xAxisIndex:0, bottom:5, height:15}],
-        series:[{name:'Mag', type:'line', data:[], lineStyle:{width:1.5, color:'#f06595'}, symbol:'none'}]
-      });
+      function clearAllData() {
+        x1Data=[];x2Data=[];y1Data=[];y2Data=[];z1Data=[];z2Data=[];
+        t1Data=[];ang1Data=[];mag1Data=[];t2Data=[];ang2Data=[];mag2Data=[];
+        for (let i = 1; i <= 6; i++) {
+          const base = chartBaseOptions[i];
+          charts[i].setOption({
+            series: [{ ...base.series[0], data: [] }],
+            yAxis: base.yAxis
+          }, { replaceMerge: ['series', 'yAxis'] });
+          yRangeCache[i] = null;
+        }
+        defectTypeEl.textContent = '---';
+        defectPosEl.textContent = '---';
+        pointCountEl.textContent = '0';
+      }
 
       function processBuffer() {
         if (bufferPoints.length === 0) return;
+        if (!charts[1]) return;  // ECharts 尚未初始化，跳过
         const points = bufferPoints.splice(0);
-        points.forEach(pt => {
-          const xVal = pt.position || pt.angle;
-          if (pt.pass === 1) {
-            p1X.push([xVal, pt.x]); p1Y.push([xVal, pt.y]); p1Z.push([xVal, pt.z]); p1Mag.push([xVal, pt.mag]);
-            while (p1X.length > MAX_POINTS) { p1X.shift(); p1Y.shift(); p1Z.shift(); p1Mag.shift(); }
-          } else {
-            p2X.push([xVal, pt.x]); p2Y.push([xVal, pt.y]); p2Z.push([xVal, pt.z]); p2Mag.push([xVal, pt.mag]);
-            while (p2X.length > MAX_POINTS) { p2X.shift(); p2Y.shift(); p2Z.shift(); p2Mag.shift(); }
-          }
+        for (let i = 0; i < points.length; i++) {
+          const pt = points[i];
+          const dist = pt.distance || 0;
 
-          if (pt.pass === 2 && xVal <= 5 && lastPassForClear === 2 && lastAngleForClear > xVal) {
-            p1X=[];p1Y=[];p1Z=[];p1Mag=[];p2X=[];p2Y=[];p2Z=[];p2Mag=[];
-            for (let i = 1; i <= 8; i++) charts[i].setOption({ series: [{data:[]}] });
-            progressInfo.textContent = '已清除';
+          if (dist > cycleMaxDist) cycleMaxDist = dist;
+          if (dist <= 1 && cycleMaxDist > 100) {
+            clearAllData();
+            cycleMaxDist = 0;
+            progressInfo.textContent = '新周期';
+            break;
           }
-          lastPassForClear = pt.pass;
-          lastAngleForClear = xVal;
-        });
+          lastDistForClear = dist;
 
-        charts[1].setOption({ series: [{data:p1X}] });
-        charts[2].setOption({ series: [{data:p1Y}] });
-        charts[3].setOption({ series: [{data:p1Z}] });
-        charts[4].setOption({ series: [{data:p1Mag}] });
-        charts[5].setOption({ series: [{data:p2X}] });
-        charts[6].setOption({ series: [{data:p2Y}] });
-        charts[7].setOption({ series: [{data:p2Z}] });
-        charts[8].setOption({ series: [{data:p2Mag}] });
+          x1Data.push([dist, pt.x1 || 0]); x2Data.push([dist, pt.x2 || 0]);
+          y1Data.push([dist, pt.y1 || 0]); y2Data.push([dist, pt.y2 || 0]);
+          z1Data.push([dist, pt.z1 || 0]); z2Data.push([dist, pt.z2 || 0]);
+          t1Data.push([dist, pt.t1 || 0]); ang1Data.push([dist, pt.ang1 || 0]); mag1Data.push([dist, pt.mag1 || 0]);
+          t2Data.push([dist, pt.t2 || 0]); ang2Data.push([dist, pt.ang2 || 0]); mag2Data.push([dist, pt.mag2 || 0]);
+
+          if (x1Data.length > MAX_POINTS) {
+            const n = x1Data.length - MAX_POINTS;
+            x1Data.splice(0, n); x2Data.splice(0, n); y1Data.splice(0, n); y2Data.splice(0, n);
+            z1Data.splice(0, n); z2Data.splice(0, n);
+            t1Data.splice(0, n); ang1Data.splice(0, n); mag1Data.splice(0, n);
+            t2Data.splice(0, n); ang2Data.splice(0, n); mag2Data.splice(0, n);
+          }
+        }
+
+        function updateChartData(chart, dataArr, idx, isSmallRange) {
+          const base = chartBaseOptions[idx];
+          const opt = {
+            animation: false,
+            series: [{ ...base.series[0], data: dataArr }]
+          };
+          const replaceKeys = ['series'];
+          if (dataArr.length >= 2) {
+            let min = Infinity, max = -Infinity;
+            for (let i = 0; i < dataArr.length; i++) {
+              const v = dataArr[i][1];
+              if (v < min) min = v;
+              if (v > max) max = v;
+            }
+            const margin = isSmallRange ? Math.max((max - min) * 0.2, 5) : Math.max((max - min) * 0.15, 10);
+            const newMin = min - margin;
+            const newMax = max + margin;
+            const cached = yRangeCache[idx];
+            if (!cached || newMin < cached.min || newMax > cached.max) {
+              yRangeCache[idx] = { min: newMin, max: newMax };
+              opt.yAxis = { ...base.yAxis, min: newMin, max: newMax };
+              replaceKeys.push('yAxis');
+            }
+          }
+          chart.setOption(opt, { replaceMerge: replaceKeys });
+        }
+
+        updateChartData(charts[1], x1Data, 1, false);
+        updateChartData(charts[2], x2Data, 2, false);
+        updateChartData(charts[3], y1Data, 3, false);
+        updateChartData(charts[4], y2Data, 4, false);
+        updateChartData(charts[5], z1Data, 5, false);
+        updateChartData(charts[6], z2Data, 6, false);
+        pointCountEl.textContent = x1Data.length;
       }
 
-      setInterval(processBuffer, UPDATE_INTERVAL);
-
-      addDataPoint = (pt) => { bufferPoints.push(pt); };
-
-      window.p1Z = p1Z; window.p2Z = p2Z;
-      window.p1X = p1X; window.p1Y = p1Y; window.p1Mag = p1Mag;
-      window.p2X = p2X; window.p2Y = p2Y; window.p2Mag = p2Mag;
-
-      if (pendingPoints.length > 0) {
-        pendingPoints.forEach(pt => bufferPoints.push(pt));
-        pendingPoints = [];
+      function startProcessInterval() {
+        if (processIntervalId) clearInterval(processIntervalId);
+        const interval = Math.round(UPDATE_INTERVAL / speedMultiplier);
+        processIntervalId = setInterval(processBuffer, interval);
       }
+
+      function stopProcessInterval() {
+        if (processIntervalId) { clearInterval(processIntervalId); processIntervalId = null; }
+      }
+
+      liveBtn.addEventListener('click', () => {
+        if (isHistoryPlaying) {
+          stopHistoryPlayback();
+          clearAllData();
+          lastDistForClear = 0;
+        }
+        liveBtn.classList.add('active');
+        replayBtn.classList.remove('active');
+        modeIndicator.textContent = useServer ? '实时扫描' : '本地模式';
+        modeIndicator.style.color = '#51cf66';
+        progressInfo.textContent = useServer ? `${currentServerIP}:${currentServerPort}` : '等待数据';
+      });
+
+      startProcessInterval();
+
+      window.x1Data = x1Data; window.x2Data = x2Data;
+      window.y1Data = y1Data; window.y2Data = y2Data;
+      window.z1Data = z1Data; window.z2Data = z2Data;
+      window.t1Data = t1Data; window.ang1Data = ang1Data; window.mag1Data = mag1Data;
+      window.t2Data = t2Data; window.ang2Data = ang2Data; window.mag2Data = mag2Data;
+
+      clearAllDataFn = clearAllData;
 
       window.addEventListener('resize', () => {
-        for (let i = 1; i <= 8; i++) charts[i].resize();
+        for (let i = 1; i <= 6; i++) charts[i].resize();
       });
     }
 
     initCharts();
   </script>
+
 </body>
 </html>
